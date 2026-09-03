@@ -135,7 +135,7 @@ export default function Home() {
       if (error) {
         setAuthError(error.message);
       } else if (data.user) {
-        alert("Գրանցումն հաջողվեց:");
+        alert("Registration successful!");
         await fetchProfile(data.user.id);
       }
     } else {
@@ -430,12 +430,12 @@ export default function Home() {
     theme: string
   ) => {
     if (!profile) {
-      alert("Խաղ ստեղծելու համար անհրաժեշտ է մուտք գործել։");
+      alert("You need to log in to create a game.");
       return;
     }
 
     if (profile.balance < bet) {
-      alert("Անբավարար հաշվեկշիռ խաղադրույքը կատարելու համար:");
+      alert("Insufficient balance to place this bet.");
       return;
     }
 
@@ -503,12 +503,12 @@ export default function Home() {
 
   const handleJoinGame = async (challenge: Challenge) => {
     if (!profile) {
-      alert("Խաղին միանալու համար անհրաժեշտ է մուտք գործել։");
+      alert("You need to log in to join a game.");
       return;
     }
 
     if (profile.balance < (challenge.bet || 0)) {
-      alert("Անբավարար հաշվեկշիռ խաղին միանալու համար:");
+      alert("Insufficient balance to join this game.");
       return;
     }
 
@@ -585,7 +585,7 @@ export default function Home() {
     return (
       <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center font-mono">
         <div className="text-emerald-400 animate-pulse font-bold text-lg">
-          Բեռնվում է...
+          Loading...
         </div>
       </main>
     );
@@ -609,7 +609,7 @@ export default function Home() {
           </div>
           <span className="text-xs text-slate-400 bg-slate-900/80 border border-slate-800 px-3 py-1.5 rounded-xl flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-            👁️ Դիտման ռեժիմ
+            👁️ Spectator Mode
           </span>
         </header>
 
@@ -617,13 +617,13 @@ export default function Home() {
           {/* Auth Form */}
           <div className="lg:col-span-5 bg-slate-900/80 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 sm:p-8 shadow-2xl">
             <div className="mb-6 text-center">
-              <h2 className="text-xl sm:text-2xl font-black text-emerald-400 tracking-wide">
-                {isRegister ? "ԳՐԱՆՑՎԵԼ" : "ՄՈՒՏՔ ԳՈՐԾԵԼ"}
+              <h2 className="text-xl sm:text-2xl font-black text-emerald-400 tracking-wide uppercase">
+                {isRegister ? "Sign Up" : "Sign In"}
               </h2>
               <p className="text-slate-400 text-xs mt-1">
                 {isRegister
-                  ? "Ստեղծիր հաշիվ խաղալու համար"
-                  : "Մուտք գործիր քո հաշիվ խաղալու համար"}
+                  ? "Create an account to start playing"
+                  : "Welcome back! Enter your credentials"}
               </p>
             </div>
 
@@ -637,7 +637,7 @@ export default function Home() {
               {isRegister && (
                 <div>
                   <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
-                    Մականուն (Username)
+                    Username
                   </label>
                   <input
                     type="text"
@@ -652,7 +652,7 @@ export default function Home() {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
-                  Էլ․ հասցե (Email)
+                  Email
                 </label>
                 <input
                   type="email"
@@ -666,7 +666,7 @@ export default function Home() {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
-                  Գաղտնաբառ (Password)
+                  Password
                 </label>
                 <input
                   type="password"
@@ -682,29 +682,29 @@ export default function Home() {
                 type="submit"
                 className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-500/20 hover:opacity-90 transition active:scale-95 cursor-pointer"
               >
-                {isRegister ? "Գրանցվել" : "Մուտք Գործել"}
+                {isRegister ? "Create Account" : "Log In"}
               </button>
             </form>
 
             <div className="mt-6 pt-4 border-t border-slate-800/80 text-center text-xs text-slate-400">
               {isRegister ? (
                 <p>
-                  Արդեն ունե՞ս հաշիվ։{" "}
+                  Already have an account?{" "}
                   <button
                     onClick={() => setIsRegister(false)}
                     className="text-emerald-400 hover:underline font-bold cursor-pointer"
                   >
-                    Մուտք
+                    Log In
                   </button>
                 </p>
               ) : (
                 <p>
-                  Չունե՞ս հաշիվ։{" "}
+                  Don't have an account?{" "}
                   <button
                     onClick={() => setIsRegister(true)}
                     className="text-emerald-400 hover:underline font-bold cursor-pointer"
                   >
-                    Գրանցվել
+                    Sign Up
                   </button>
                 </p>
               )}
@@ -716,7 +716,7 @@ export default function Home() {
             <div className="mb-4 flex justify-between items-center bg-slate-950/60 p-3 rounded-xl border border-slate-800">
               <span className="text-xs font-bold text-amber-400 flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                🔴 Ակտիվ խաղեր (Դիտելու համար)
+                🔴 Live Matches (Spectate Only)
               </span>
             </div>
 
@@ -768,7 +768,7 @@ export default function Home() {
                 onClick={handleLogout}
                 className="px-3 py-1.5 bg-rose-500/10 border border-rose-500/30 text-rose-400 font-bold rounded-xl text-xs hover:bg-rose-500/20 transition cursor-pointer"
               >
-                Դուրս գալ
+                Log Out
               </button>
             </div>
           ) : (
@@ -776,7 +776,7 @@ export default function Home() {
               onClick={() => setActiveTab("lobby")}
               className="px-4 py-2 bg-emerald-500 text-slate-950 font-bold rounded-xl text-xs hover:bg-emerald-400 transition cursor-pointer shadow-md shadow-emerald-500/20"
             >
-              Մուտք
+              Sign In
             </button>
           )}
         </div>
