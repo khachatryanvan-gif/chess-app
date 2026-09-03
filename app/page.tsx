@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { Chess } from "chess.js";
+import { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import Lobby, { Challenge } from "@/components/Lobby";
 import ChessClock from "@/components/ChessClock";
@@ -60,7 +61,7 @@ export default function Home() {
   const [increment, setIncrement] = useState<number>(0);
   const [gameStatus, setGameStatus] = useState<string>("waiting");
 
-  const channelRef = useRef<any>(null);
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
   // Reset function
   const resetToLobby = useCallback(() => {
@@ -103,7 +104,7 @@ export default function Home() {
     fetchSessionAndProfile();
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      async (_event, session) => {
         if (session?.user) {
           await fetchProfile(session.user.id);
         } else {
@@ -174,7 +175,7 @@ export default function Home() {
 
       await supabase
         .from("games")
-        .update({ status: "completed", winner: winner })
+        .update({ status: "completed", winner })
         .eq("id", currentChallenge?.id);
 
       alert(`⏰ Time's up! ${winner} wins on time!`);
@@ -235,8 +236,8 @@ export default function Home() {
     channel.on(
       "postgres_changes",
       { event: "*", schema: "public", table: "games" },
-      (payload: any) => {
-        const updatedGame = payload.new;
+      (payload) => {
+        const updatedGame = payload.new as any;
         if (updatedGame && updatedGame.id === gameId) {
           if (
             updatedGame.status === "completed" ||
@@ -264,7 +265,7 @@ export default function Home() {
           );
         }
 
-        if (payload.eventType === "DELETE" && payload.old?.id === gameId) {
+        if (payload.eventType === "DELETE" && (payload.old as any)?.id === gameId) {
           alert("Game was canceled.");
           resetToLobby();
         }
@@ -369,7 +370,7 @@ export default function Home() {
     }
   };
 
-  // 5. Move Logic (Synchronous for react-chessboard)
+  // 5. Move Logic
   const makeAMove = (move: any): boolean => {
     try {
       const gameCopy = new Chess(game.fen());
@@ -384,7 +385,6 @@ export default function Home() {
         const newBlackTime =
           currentTurn === "b" ? blackTime + increment : blackTime;
 
-        // Async update to DB in background
         supabase
           .from("games")
           .update({
@@ -401,7 +401,7 @@ export default function Home() {
 
         return true;
       }
-    } catch (e) {
+    } catch {
       return false;
     }
     return false;
@@ -422,7 +422,7 @@ export default function Home() {
     });
   };
 
-  // 6. Game Actions (Create, Join, Watch)
+  // 6. Game Actions
   const handleCreateGame = async (
     bet: number,
     timeControl: string,
@@ -460,11 +460,11 @@ export default function Home() {
           fen: newGame.fen(),
           status: "waiting",
           turn: "w",
-          bet: bet,
+          bet,
           wager: bet,
           time_control: timeControl,
           color: assignedColor,
-          theme: theme,
+          theme,
           white_time: baseSeconds,
           black_time: baseSeconds,
         },
@@ -482,8 +482,8 @@ export default function Home() {
         id: data.id,
         creator: profile.username,
         rating: 1500,
-        bet: bet,
-        timeControl: timeControl,
+        bet,
+        timeControl,
         status: "waiting",
         theme: theme as any,
       };
