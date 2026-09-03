@@ -62,6 +62,10 @@ export default function Home() {
   const [increment, setIncrement] = useState<number>(0);
   const [gameStatus, setGameStatus] = useState<string>("waiting");
 
+  // Offer States
+  const [drawOfferedBy, setDrawOfferedBy] = useState<string | null>(null);
+  const [takebackOfferedBy, setTakebackOfferedBy] = useState<string | null>(null);
+
   const channelRef = useRef<RealtimeChannel | null>(null);
 
   // Reset function
@@ -70,6 +74,8 @@ export default function Home() {
     setCurrentChallenge(null);
     setGame(new Chess());
     setGameStatus("waiting");
+    setDrawOfferedBy(null);
+    setTakebackOfferedBy(null);
   }, []);
 
   // Fetch Profile
@@ -234,6 +240,33 @@ export default function Home() {
       resetToLobby();
     });
 
+    // Draw Offers
+    channel.on("broadcast", { event: "draw_offer" }, (payload) => {
+      setDrawOfferedBy(payload.payload.username);
+    });
+
+    channel.on("broadcast", { event: "draw_declined" }, () => {
+      alert("Draw offer was declined.");
+      setDrawOfferedBy(null);
+    });
+
+    // Takeback Offers
+    channel.on("broadcast", { event: "takeback_offer" }, (payload) => {
+      setTakebackOfferedBy(payload.payload.username);
+    });
+
+    channel.on("broadcast", { event: "takeback_declined" }, () => {
+      alert("Takeback request was declined.");
+      setTakebackOfferedBy(null);
+    });
+
+    channel.on("broadcast", { event: "takeback_accepted" }, (payload) => {
+      if (payload.payload?.fen) {
+        setGame(new Chess(payload.payload.fen));
+      }
+      setTakebackOfferedBy(null);
+    });
+
     channel.on(
       "postgres_changes",
       { event: "*", schema: "public", table: "games" },
@@ -368,6 +401,85 @@ export default function Home() {
       }
     } else {
       resetToLobby();
+    }
+  };
+
+  // Draw & Takeback Handlers
+  const offerDraw = () => {
+    if (!channelRef.current || !profile) return;
+    channelRef.current.send({
+      type: "broadcast",
+      event: "draw_offer",
+      payload: { username: profile.username },
+    });
+    alert("Draw offer sent to opponent.");
+  };
+
+  const respondDraw = async (accept: boolean) => {
+    if (!channelRef.current) return;
+    if (accept) {
+      channelRef.current.send({
+        type: "broadcast",
+        event: "game_ended",
+        payload: { winner: "Draw" },
+      });
+
+      await supabase
+        .from("games")
+        .update({ status: "completed", winner: "Draw" })
+        .eq("id", currentChallenge?.id);
+
+      alert("🤝 Game ended in a draw!");
+      resetToLobby();
+    } else {
+      channelRef.current.send({
+        type: "broadcast",
+        event: "draw_declined",
+      });
+      setDrawOfferedBy(null);
+    }
+  };
+
+  const requestTakeback = () => {
+    if (!channelRef.current || !profile) return;
+    channelRef.current.send({
+      type: "broadcast",
+      event: "takeback_offer",
+      payload: { username: profile.username },
+    });
+    alert("Takeback request sent.");
+  };
+
+  const respondTakeback = async (accept: boolean) => {
+    if (!channelRef.current) return;
+    if (accept) {
+      const history = game.history({ verbose: true });
+      if (history.length > 0) {
+        const gameCopy = new Chess();
+        for (let i = 0; i < history.length - 1; i++) {
+          gameCopy.move(history[i]);
+        }
+        const newFen = gameCopy.fen();
+        setGame(gameCopy);
+
+        await supabase
+          .from("games")
+          .update({ fen: newFen, turn: gameCopy.turn() })
+          .eq("id", currentChallenge?.id);
+
+        channelRef.current.send({
+          type: "broadcast",
+          event: "takeback_accepted",
+          payload: { fen: newFen },
+        });
+      }
+      setTakebackOfferedBy(null);
+    } else {
+      channelRef.current.send({
+        type: "broadcast",
+        event: "takeback_declined",
+      });
+      setTakebackOfferedBy(null);
     }
   };
 
@@ -793,65 +905,141 @@ export default function Home() {
           />
         </div>
       ) : (
-        <div className="w-full max-w-4xl flex flex-col items-center gap-4">
-          <div className="w-full bg-slate-900/80 p-4 rounded-xl border border-slate-800 flex justify-between items-center text-sm font-semibold backdrop-blur-md">
-            <div>
-              <span className="text-slate-400">Creator: </span>
-              <span className="text-emerald-400 font-bold">
-                {currentChallenge?.creator}
-              </span>
+        /* Game Area with Live Chat side-by-side */
+        <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          {/* Board & Clock Column */}
+          <div className="lg:col-span-7 flex flex-col items-center gap-4">
+            <div className="w-full bg-slate-900/80 p-4 rounded-xl border border-slate-800 flex justify-between items-center text-sm font-semibold backdrop-blur-md">
+              <div>
+                <span className="text-slate-400">Creator: </span>
+                <span className="text-emerald-400 font-bold">
+                  {currentChallenge?.creator}
+                </span>
+              </div>
+              {isSpectator && (
+                <span className="bg-amber-500/20 text-amber-400 px-3 py-1 rounded-full text-xs font-bold border border-amber-500/30">
+                  👁️ Spectating
+                </span>
+              )}
+              <div>
+                <span className="text-slate-400">Opponent: </span>
+                <span className="text-rose-400 font-bold">
+                  {currentChallenge?.opponent || "Waiting..."}
+                </span>
+              </div>
             </div>
-            {isSpectator && (
-              <span className="bg-amber-500/20 text-amber-400 px-3 py-1 rounded-full text-xs font-bold border border-amber-500/30">
-                👁️ Spectating
-              </span>
-            )}
-            <div>
-              <span className="text-slate-400">Opponent: </span>
-              <span className="text-rose-400 font-bold">
-                {currentChallenge?.opponent || "Waiting..."}
-              </span>
-            </div>
-          </div>
 
-          <ChessClock
-            whiteTime={whiteTime}
-            blackTime={blackTime}
-            activeTurn={game.turn()}
-            isGameActive={gameStatus === "live"}
-          />
-
-          <div className="w-full flex justify-between max-w-[500px]">
-            <button
-              onClick={handleLeaveGame}
-              className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer"
-            >
-              {gameStatus === "waiting"
-                ? "🚫 Cancel Game"
-                : "🏳️ Resign / Leave"}
-            </button>
-
-            <button
-              onClick={toggleBoardOrientation}
-              className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-300 transition cursor-pointer"
-            >
-              🔄 Flip Board ({userOrientation.toUpperCase()})
-            </button>
-          </div>
-
-          <div className="w-full max-w-[500px] aspect-square shadow-2xl rounded-xl overflow-hidden border-2 border-slate-800 bg-slate-900">
-            <Chessboard
-              id={`chess_board_${currentChallenge?.id || "default"}`}
-              position={game.fen()}
-              onPieceDrop={onDrop}
-              boardOrientation={userOrientation}
-              customDarkSquareStyle={{ backgroundColor: activeTheme.dark }}
-              customLightSquareStyle={{ backgroundColor: activeTheme.light }}
-              arePiecesDraggable={
-                !isSpectator && gameStatus === "live" && !game.isGameOver()
-              }
-              animationDuration={150}
+            <ChessClock
+              whiteTime={whiteTime}
+              blackTime={blackTime}
+              activeTurn={game.turn()}
+              isGameActive={gameStatus === "live"}
             />
+
+            {/* Action Buttons & Offers */}
+            <div className="w-full flex flex-col gap-2 max-w-[500px]">
+              {/* Active Offers Notification */}
+              {drawOfferedBy && drawOfferedBy !== profile?.username && (
+                <div className="bg-amber-500/20 border border-amber-500/40 p-3 rounded-xl flex items-center justify-between text-xs text-amber-300">
+                  <span>🤝 {drawOfferedBy} offers a draw. Accept?</span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => respondDraw(true)}
+                      className="bg-emerald-500 text-slate-950 font-bold px-2 py-1 rounded hover:bg-emerald-400 cursor-pointer"
+                    >
+                      Yes
+                    </button>
+                    <button
+                      onClick={() => respondDraw(false)}
+                      className="bg-rose-500 text-white font-bold px-2 py-1 rounded hover:bg-rose-400 cursor-pointer"
+                    >
+                      No
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {takebackOfferedBy && takebackOfferedBy !== profile?.username && (
+                <div className="bg-amber-500/20 border border-amber-500/40 p-3 rounded-xl flex items-center justify-between text-xs text-amber-300">
+                  <span>↩️ {takebackOfferedBy} requests a takeback. Accept?</span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => respondTakeback(true)}
+                      className="bg-emerald-500 text-slate-950 font-bold px-2 py-1 rounded hover:bg-emerald-400 cursor-pointer"
+                    >
+                      Yes
+                    </button>
+                    <button
+                      onClick={() => respondTakeback(false)}
+                      className="bg-rose-500 text-white font-bold px-2 py-1 rounded hover:bg-rose-400 cursor-pointer"
+                    >
+                      No
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="w-full flex justify-between flex-wrap gap-2">
+                <button
+                  onClick={handleLeaveGame}
+                  className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer"
+                >
+                  {gameStatus === "waiting"
+                    ? "🚫 Cancel Game"
+                    : "🏳️ Resign / Leave"}
+                </button>
+
+                {!isSpectator && gameStatus === "live" && (
+                  <>
+                    <button
+                      onClick={offerDraw}
+                      className="bg-slate-900 hover:bg-slate-800 border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-400 transition cursor-pointer"
+                    >
+                      🤝 Offer Draw
+                    </button>
+                    <button
+                      onClick={requestTakeback}
+                      className="bg-slate-900 hover:bg-slate-800 border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold text-sky-400 transition cursor-pointer"
+                    >
+                      ↩️ Takeback
+                    </button>
+                  </>
+                )}
+
+                <button
+                  onClick={toggleBoardOrientation}
+                  className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-300 transition cursor-pointer"
+                >
+                  🔄 Flip Board ({userOrientation.toUpperCase()})
+                </button>
+              </div>
+            </div>
+
+            <div className="w-full max-w-[500px] aspect-square shadow-2xl rounded-xl overflow-hidden border-2 border-slate-800 bg-slate-900">
+              <Chessboard
+                id={`chess_board_${currentChallenge?.id || "default"}`}
+                position={game.fen()}
+                onPieceDrop={onDrop}
+                boardOrientation={userOrientation}
+                customDarkSquareStyle={{ backgroundColor: activeTheme.dark }}
+                customLightSquareStyle={{ backgroundColor: activeTheme.light }}
+                arePiecesDraggable={
+                  !isSpectator && gameStatus === "live" && !game.isGameOver()
+                }
+                animationDuration={150}
+              />
+            </div>
+          </div>
+
+          {/* Live Chat Column */}
+          <div className="lg:col-span-5 w-full">
+            {currentChallenge?.id && (
+              <LiveChat
+                gameId={currentChallenge.id}
+                username={profile?.username || "Guest"}
+                isSpectator={isSpectator}
+              />
+            )}
           </div>
         </div>
       )}
