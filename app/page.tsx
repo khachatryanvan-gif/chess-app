@@ -8,6 +8,9 @@ import { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import Lobby, { Challenge } from "@/components/Lobby";
 import ChessClock from "@/components/ChessClock";
+import MoveHistory from "@/components/MoveHistory";
+import DepositModal from "@/components/DepositModal";
+import { soundEffects } from "@/lib/sounds";
 
 const Chessboard = dynamic(
   () => import("react-chessboard").then((mod) => mod.Chessboard),
@@ -49,6 +52,9 @@ export default function Home() {
   const [password, setPassword] = useState("");
   const [username, setUsername] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
+
+  // Deposit Modal State
+  const [showDepositModal, setShowDepositModal] = useState(false);
 
   // Game & Lobby State
   const [currentChallenge, setCurrentChallenge] = useState<Challenge | null>(null);
@@ -483,7 +489,7 @@ export default function Home() {
     }
   };
 
-  // 5. Move Logic
+  // 5. Move Logic with Sound Effects
   const makeAMove = (move: any): boolean => {
     try {
       const gameCopy = new Chess(game.fen());
@@ -492,6 +498,15 @@ export default function Home() {
 
       if (result) {
         setGame(gameCopy);
+
+        // 🔊 Sound Trigger
+        if (gameCopy.inCheck()) {
+          soundEffects.playCheck();
+        } else if (result.captured) {
+          soundEffects.playCapture();
+        } else {
+          soundEffects.playMove();
+        }
 
         const newWhiteTime =
           currentTurn === "w" ? whiteTime + increment : whiteTime;
@@ -889,8 +904,14 @@ export default function Home() {
           </button>
           {profile ? (
             <div className="flex items-center gap-3">
-              <div className="bg-slate-900/80 backdrop-blur-md border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-mono text-emerald-400 flex items-center gap-1">
-                <span>💰</span> {profile.balance} USDT
+              <div className="bg-slate-900/80 backdrop-blur-md border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-mono text-emerald-400 flex items-center gap-2">
+                <span>💰 {profile.balance} USDT</span>
+                <button
+                  onClick={() => setShowDepositModal(true)}
+                  className="bg-emerald-500/20 hover:bg-emerald-500/40 text-emerald-400 px-1.5 py-0.5 rounded text-[11px] font-bold cursor-pointer transition"
+                >
+                  +
+                </button>
               </div>
               <div className="bg-slate-900/80 backdrop-blur-md border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-mono text-slate-200">
                 👤 {profile.username}
@@ -997,69 +1018,72 @@ export default function Home() {
                 </div>
               )}
 
-              <div className="w-full flex justify-between flex-wrap gap-2">
-                <button
-                  onClick={handleLeaveGame}
-                  className="bg-rose-500/10 hover:bg-rose-500/20 backdrop-blur-md text-rose-400 border border-rose-500/30 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer"
-                >
-                  {gameStatus === "waiting"
-                    ? "🚫 Cancel Game"
-                    : "🏳️ Resign / Leave"}
-                </button>
+              {/* Game Action Controls */}
+              {!isSpectator && gameStatus === "live" && (
+                <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 text-xs gap-2">
+                  <button
+                    onClick={offerDraw}
+                    className="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg font-bold transition cursor-pointer"
+                  >
+                    🤝 Draw
+                  </button>
+                  <button
+                    onClick={requestTakeback}
+                    className="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg font-bold transition cursor-pointer"
+                  >
+                    ↩️ Takeback
+                  </button>
+                  <button
+                    onClick={toggleBoardOrientation}
+                    className="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg font-bold transition cursor-pointer"
+                  >
+                    🔄 Flip
+                  </button>
+                </div>
+              )}
 
-                {!isSpectator && gameStatus === "live" && (
-                  <>
-                    <button
-                      onClick={offerDraw}
-                      className="bg-slate-900/80 hover:bg-slate-800 backdrop-blur-md border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-400 transition cursor-pointer"
-                    >
-                      🤝 Offer Draw
-                    </button>
-                    <button
-                      onClick={requestTakeback}
-                      className="bg-slate-900/80 hover:bg-slate-800 backdrop-blur-md border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold text-sky-400 transition cursor-pointer"
-                    >
-                      ↩️ Takeback
-                    </button>
-                  </>
-                )}
-
-                <button
-                  onClick={toggleBoardOrientation}
-                  className="flex items-center gap-2 bg-slate-900/80 hover:bg-slate-800 backdrop-blur-md border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-300 transition cursor-pointer"
-                >
-                  🔄 Flip Board ({userOrientation.toUpperCase()})
-                </button>
-              </div>
+              <button
+                onClick={handleLeaveGame}
+                className="w-full py-2.5 bg-rose-500/20 border border-rose-500/40 text-rose-400 hover:bg-rose-500/30 font-bold rounded-xl text-xs transition cursor-pointer"
+              >
+                {gameStatus === "live" ? "🏳️ Resign / Leave" : "👈 Exit Match"}
+              </button>
             </div>
 
-            <div className="w-full max-w-[500px] aspect-square shadow-2xl rounded-xl overflow-hidden border-2 border-slate-800 bg-slate-900/90">
+            {/* Chessboard */}
+            <div className="w-full max-w-[500px] aspect-square rounded-2xl overflow-hidden border-2 border-slate-800 shadow-2xl">
               <Chessboard
-                id={`chess_board_${currentChallenge?.id || "default"}`}
                 position={game.fen()}
                 onPieceDrop={onDrop}
                 boardOrientation={userOrientation}
+                customBoardStyle={{ borderRadius: "0.5rem" }}
                 customDarkSquareStyle={{ backgroundColor: activeTheme.dark }}
                 customLightSquareStyle={{ backgroundColor: activeTheme.light }}
-                arePiecesDraggable={
-                  !isSpectator && gameStatus === "live" && !game.isGameOver()
-                }
-                animationDuration={150}
               />
             </div>
           </div>
 
-          {/* Live Chat Column */}
-          <div className="lg:col-span-5 w-full">
-            {currentChallenge?.id && (
+          {/* Side Column: Move History & Live Chat */}
+          <div className="lg:col-span-5 flex flex-col gap-4">
+            <MoveHistory history={game.history()} />
+            
+            {currentChallenge && profile && (
               <LiveChat
                 gameId={currentChallenge.id}
-                username={profile?.username || "Guest"}
-                isSpectator={isSpectator}
+                username={profile.username}
               />
             )}
           </div>
         </div>
+      )}
+
+      {/* Deposit Modal */}
+      {showDepositModal && profile && (
+        <DepositModal
+          userId={profile.id}
+          username={profile.username}
+          onClose={() => setShowDepositModal(false)}
+        />
       )}
     </main>
   );
