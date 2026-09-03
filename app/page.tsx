@@ -551,7 +551,7 @@ export default function Home() {
   };
 
   // 6. Game Actions
-  const handleCreateGame = async (
+ const handleCreateGame = async (
     bet: number,
     timeControl: string,
     color: string,
@@ -577,14 +577,13 @@ export default function Home() {
 
     const isCreatorWhite = assignedColor === "white";
 
+    // 🔴 ԱՀԱ ԱՅՍ ՀԱՏՎԱԾԸ ՓՈԽԱՐԻՆԵՔ 🔴
     const { data, error } = await supabase
       .from("games")
       .insert([
         {
           white_player: isCreatorWhite ? profile.username : null,
           black_player: isCreatorWhite ? null : profile.username,
-          white_player_id: isCreatorWhite ? profile.id : null,
-          black_player_id: isCreatorWhite ? null : profile.id,
           fen: newGame.fen(),
           status: "waiting",
           turn: "w",
