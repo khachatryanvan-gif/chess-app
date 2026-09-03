@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { Chess } from "chess.js";
 import { supabase } from "@/lib/supabase";
@@ -36,7 +36,7 @@ const parseTimeControl = (tc: string) => {
 };
 
 export default function Home() {
-  const [game, setGame] = useState(new Chess());
+  const [game, setGame] = useState<Chess>(new Chess());
   const [activeTab, setActiveTab] = useState<"lobby" | "game">("lobby");
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
@@ -62,7 +62,43 @@ export default function Home() {
 
   const channelRef = useRef<any>(null);
 
-  // 1. Check Supabase Auth Session and fetch Profile
+  // Reset function
+  const resetToLobby = useCallback(() => {
+    setActiveTab("lobby");
+    setCurrentChallenge(null);
+    setGame(new Chess());
+    setGameStatus("waiting");
+  }, []);
+
+  // Fetch Profile
+  const fetchProfile = useCallback(async (userId: string) => {
+    const { data } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", userId)
+      .single();
+
+    if (data) {
+      setProfile(data as UserProfile);
+    }
+  }, []);
+
+  // Fetch Session
+  const fetchSessionAndProfile = useCallback(async () => {
+    setLoadingProfile(true);
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (session?.user) {
+      await fetchProfile(session.user.id);
+    } else {
+      setProfile(null);
+    }
+    setLoadingProfile(false);
+  }, [fetchProfile]);
+
+  // 1. Auth Listener
   useEffect(() => {
     fetchSessionAndProfile();
 
@@ -79,33 +115,7 @@ export default function Home() {
     return () => {
       authListener.subscription.unsubscribe();
     };
-  }, []);
-
-  const fetchSessionAndProfile = async () => {
-    setLoadingProfile(true);
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (session?.user) {
-      await fetchProfile(session.user.id);
-    } else {
-      setProfile(null);
-    }
-    setLoadingProfile(false);
-  };
-
-  const fetchProfile = async (userId: string) => {
-    const { data } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .single();
-
-    if (data) {
-      setProfile(data as UserProfile);
-    }
-  };
+  }, [fetchProfile, fetchSessionAndProfile]);
 
   // 2. Auth Handlers
   const handleAuthSubmit = async (e: React.FormEvent) => {
@@ -147,12 +157,31 @@ export default function Home() {
     resetToLobby();
   };
 
-  const resetToLobby = () => {
-    setActiveTab("lobby");
-    setCurrentChallenge(null);
-    setGame(new Chess());
-    setGameStatus("waiting");
-  };
+  // Handle Timeout
+  const handleTimeout = useCallback(
+    async (timedOutColor: "w" | "b") => {
+      if (gameStatus !== "live") return;
+
+      const winner = timedOutColor === "w" ? "Black" : "White";
+
+      if (channelRef.current) {
+        channelRef.current.send({
+          type: "broadcast",
+          event: "game_ended",
+          payload: { winner },
+        });
+      }
+
+      await supabase
+        .from("games")
+        .update({ status: "completed", winner: winner })
+        .eq("id", currentChallenge?.id);
+
+      alert(`⏰ Time's up! ${winner} wins on time!`);
+      resetToLobby();
+    },
+    [gameStatus, currentChallenge?.id, resetToLobby]
+  );
 
   // 3. Realtime Subscriptions & Game State Sync
   useEffect(() => {
@@ -205,7 +234,7 @@ export default function Home() {
 
     channel.on(
       "postgres_changes",
-      { event: "*", schema: "*", table: "games" },
+      { event: "*", schema: "public", table: "games" },
       (payload: any) => {
         const updatedGame = payload.new;
         if (updatedGame && updatedGame.id === gameId) {
@@ -249,7 +278,7 @@ export default function Home() {
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [currentChallenge?.id, profile?.username]);
+  }, [currentChallenge?.id, profile?.username, resetToLobby]);
 
   // 4. Timer Countdown
   useEffect(() => {
@@ -279,29 +308,7 @@ export default function Home() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [gameStatus, game.turn(), game.fen()]);
-
-  const handleTimeout = async (timedOutColor: "w" | "b") => {
-    if (gameStatus !== "live") return;
-
-    const winner = timedOutColor === "w" ? "Black" : "White";
-
-    if (channelRef.current) {
-      channelRef.current.send({
-        type: "broadcast",
-        event: "game_ended",
-        payload: { winner },
-      });
-    }
-
-    await supabase
-      .from("games")
-      .update({ status: "completed", winner: winner })
-      .eq("id", currentChallenge?.id);
-
-    alert(`⏰ Time's up! ${winner} wins on time!`);
-    resetToLobby();
-  };
+  }, [gameStatus, game, handleTimeout]);
 
   const handleLeaveGame = async () => {
     if (!currentChallenge?.id || isSpectator) {
@@ -362,8 +369,8 @@ export default function Home() {
     }
   };
 
-  // 5. Move Logic
-  const makeAMove = async (move: any) => {
+  // 5. Move Logic (Synchronous for react-chessboard)
+  const makeAMove = (move: any): boolean => {
     try {
       const gameCopy = new Chess(game.fen());
       const currentTurn = gameCopy.turn();
@@ -377,7 +384,8 @@ export default function Home() {
         const newBlackTime =
           currentTurn === "b" ? blackTime + increment : blackTime;
 
-        await supabase
+        // Async update to DB in background
+        supabase
           .from("games")
           .update({
             fen: gameCopy.fen(),
@@ -386,7 +394,10 @@ export default function Home() {
             black_time: newBlackTime,
             last_move_at: new Date().toISOString(),
           })
-          .eq("id", currentChallenge?.id);
+          .eq("id", currentChallenge?.id)
+          .then(({ error }) => {
+            if (error) console.error("Error updating game:", error);
+          });
 
         return true;
       }
@@ -396,7 +407,7 @@ export default function Home() {
     return false;
   };
 
-  const onDrop = (sourceSquare: string, targetSquare: string) => {
+  const onDrop = (sourceSquare: string, targetSquare: string): boolean => {
     if (isSpectator || gameStatus !== "live") return false;
 
     const turn = game.turn();
@@ -570,9 +581,17 @@ export default function Home() {
 
   const activeTheme = BOARD_THEMES[boardTheme] || BOARD_THEMES.green;
 
-  // -------------------------------------------------------------
+  if (loadingProfile) {
+    return (
+      <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center font-mono">
+        <div className="text-emerald-400 animate-pulse font-bold text-lg">
+          Բեռնվում է...
+        </div>
+      </main>
+    );
+  }
+
   // LANDING PAGE (Unauthenticated Users)
-  // -------------------------------------------------------------
   if (!profile && activeTab === "lobby") {
     return (
       <main className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center p-4 md:p-8 font-mono relative overflow-hidden">
@@ -706,9 +725,7 @@ export default function Home() {
     );
   }
 
-  // -------------------------------------------------------------
   // MAIN APP VIEW (Authenticated User or Active Match View)
-  // -------------------------------------------------------------
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center p-4 md:p-8 font-mono">
       <header className="w-full max-w-6xl flex justify-between items-center pb-6 mb-8 border-b border-slate-800">
