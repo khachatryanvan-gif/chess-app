@@ -598,20 +598,26 @@ export default function Home() {
         <div className="fixed -top-20 -left-20 w-[500px] h-[500px] bg-emerald-500/10 rounded-full blur-[140px] pointer-events-none" />
         <div className="fixed -bottom-20 -right-20 w-[500px] h-[500px] bg-cyan-600/10 rounded-full blur-[140px] pointer-events-none" />
 
-        <header className="w-full max-w-6xl flex justify-between items-center pb-6 mb-6 border-b border-slate-800 z-10">
-          <h1 className="text-2xl font-black text-emerald-400 flex items-center gap-2">
-            ♟️ CHESS ARENA
-          </h1>
-          <span className="text-xs text-slate-400 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl">
+        <header className="w-full max-w-6xl flex justify-between items-center pb-6 mb-6 border-b border-slate-800/80 z-10">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+              <span className="text-xl font-black text-slate-950">♟</span>
+            </div>
+            <span className="text-2xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-slate-400">
+              Chess<span className="text-emerald-400">Bet</span>
+            </span>
+          </div>
+          <span className="text-xs text-slate-400 bg-slate-900/80 border border-slate-800 px-3 py-1.5 rounded-xl flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
             👁️ Դիտման ռեժիմ
           </span>
         </header>
 
         <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-12 gap-8 z-10 items-start">
           {/* Auth Form */}
-          <div className="lg:col-span-5 bg-slate-900/80 backdrop-blur-xl border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl">
+          <div className="lg:col-span-5 bg-slate-900/80 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 sm:p-8 shadow-2xl">
             <div className="mb-6 text-center">
-              <h2 className="text-xl sm:text-2xl font-black text-emerald-400">
+              <h2 className="text-xl sm:text-2xl font-black text-emerald-400 tracking-wide">
                 {isRegister ? "ԳՐԱՆՑՎԵԼ" : "ՄՈՒՏՔ ԳՈՐԾԵԼ"}
               </h2>
               <p className="text-slate-400 text-xs mt-1">
@@ -674,13 +680,13 @@ export default function Home() {
 
               <button
                 type="submit"
-                className="w-full py-3.5 rounded-xl bg-emerald-500 text-slate-950 font-black text-xs uppercase tracking-wider shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:bg-emerald-400 transition cursor-pointer"
+                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-500/20 hover:opacity-90 transition active:scale-95 cursor-pointer"
               >
                 {isRegister ? "Գրանցվել" : "Մուտք Գործել"}
               </button>
             </form>
 
-            <div className="mt-6 pt-4 border-t border-slate-800 text-center text-xs text-slate-400">
+            <div className="mt-6 pt-4 border-t border-slate-800/80 text-center text-xs text-slate-400">
               {isRegister ? (
                 <p>
                   Արդեն ունե՞ս հաշիվ։{" "}
@@ -708,7 +714,8 @@ export default function Home() {
           {/* Read-Only Lobby */}
           <div className="lg:col-span-7 bg-slate-900/40 backdrop-blur-md border border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-xl">
             <div className="mb-4 flex justify-between items-center bg-slate-950/60 p-3 rounded-xl border border-slate-800">
-              <span className="text-xs font-bold text-amber-400">
+              <span className="text-xs font-bold text-amber-400 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
                 🔴 Ակտիվ խաղեր (Դիտելու համար)
               </span>
             </div>
@@ -728,25 +735,31 @@ export default function Home() {
   // MAIN APP VIEW (Authenticated User or Active Match View)
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center p-4 md:p-8 font-mono">
-      <header className="w-full max-w-6xl flex justify-between items-center pb-6 mb-8 border-b border-slate-800">
-        <h1 className="text-2xl font-black text-emerald-400 flex items-center gap-2">
-          ♟️ CHESS ARENA
-        </h1>
+      <header className="w-full max-w-6xl flex justify-between items-center pb-6 mb-8 border-b border-slate-800/80">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+            <span className="text-xl font-black text-slate-950">♟</span>
+          </div>
+          <span className="text-2xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-slate-400">
+            Chess<span className="text-emerald-400">Bet</span>
+          </span>
+        </div>
+
         <div className="flex gap-4 items-center">
           <button
             onClick={() => resetToLobby()}
             className={`px-4 py-2 rounded-xl text-sm font-bold transition cursor-pointer ${
               activeTab === "lobby"
-                ? "bg-emerald-500 text-slate-950"
-                : "bg-slate-900 text-slate-400 hover:text-slate-200"
+                ? "bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20"
+                : "bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800"
             }`}
           >
             Lobby
           </button>
           {profile ? (
             <div className="flex items-center gap-3">
-              <div className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-mono text-emerald-400">
-                💰 {profile.balance} USDT
+              <div className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-mono text-emerald-400 flex items-center gap-1">
+                <span>💰</span> {profile.balance} USDT
               </div>
               <div className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-mono text-slate-200">
                 👤 {profile.username}
@@ -761,7 +774,7 @@ export default function Home() {
           ) : (
             <button
               onClick={() => setActiveTab("lobby")}
-              className="px-3 py-1.5 bg-emerald-500 text-slate-950 font-bold rounded-xl text-xs hover:bg-emerald-400 transition cursor-pointer"
+              className="px-4 py-2 bg-emerald-500 text-slate-950 font-bold rounded-xl text-xs hover:bg-emerald-400 transition cursor-pointer shadow-md shadow-emerald-500/20"
             >
               Մուտք
             </button>
@@ -770,15 +783,17 @@ export default function Home() {
       </header>
 
       {activeTab === "lobby" ? (
-        <Lobby
-          readOnly={!profile}
-          onJoinGame={handleJoinGame}
-          onWatchGame={handleWatchGame}
-          onCreateGame={handleCreateGame}
-        />
+        <div className="w-full max-w-6xl">
+          <Lobby
+            readOnly={!profile}
+            onJoinGame={handleJoinGame}
+            onWatchGame={handleWatchGame}
+            onCreateGame={handleCreateGame}
+          />
+        </div>
       ) : (
-        <div className="w-full max-w-4xl flex flex-col items-center gap-2">
-          <div className="w-full bg-slate-900 p-4 rounded-xl border border-slate-800 flex justify-between items-center text-sm font-semibold">
+        <div className="w-full max-w-4xl flex flex-col items-center gap-4">
+          <div className="w-full bg-slate-900/80 p-4 rounded-xl border border-slate-800 flex justify-between items-center text-sm font-semibold backdrop-blur-md">
             <div>
               <span className="text-slate-400">Creator: </span>
               <span className="text-emerald-400 font-bold">

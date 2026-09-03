@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Chess Betting Platform",
-  description: "Play Chess and Bet USDT",
+  title: "ChessBet | P2P USDT Chess Betting Platform",
+  description: "Play real-time P2P chess, stake USDT, and win instantly.",
 };
 
 export default function RootLayout({
@@ -28,7 +28,9 @@ export default function RootLayout({
           href="https://cdn.jsdelivr.net/npm/chessground@9.1.1/assets/chessground.cbm.css"
         />
       </head>
-      <body>{children}</body>
+      <body className="bg-slate-950 text-slate-100 antialiased selection:bg-emerald-500 selection:text-black min-h-screen">
+        {children}
+      </body>
     </html>
   );
 }
