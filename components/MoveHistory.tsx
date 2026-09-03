@@ -1,47 +1,44 @@
-// components/MoveHistory.tsx
 "use client";
-
-import { useEffect, useRef } from "react";
 
 interface MoveHistoryProps {
   history: string[];
 }
 
 export default function MoveHistory({ history }: MoveHistoryProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [history]);
-
-  // Զույգերով խմբավորում ենք (1. e4 e5)
-  const movesPairs = [];
-  for (let i = 0; i < history.length; i += 2) {
-    movesPairs.push({
-      number: Math.floor(i / 2) + 1,
-      white: history[i],
-      black: history[i + 1] || "",
-    });
-  }
+  // Pair moves into White & Black columns
+  const movePairs = history.reduce<{ white: string; black?: string }[]>(
+    (acc, move, index) => {
+      if (index % 2 === 0) {
+        acc.push({ white: move });
+      } else {
+        acc[acc.length - 1].black = move;
+      }
+      return acc;
+    },
+    []
+  );
 
   return (
-    <div className="w-full bg-slate-900/80 backdrop-blur-md border border-slate-800 rounded-xl p-3 flex flex-col h-48">
-      <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 pb-1 border-b border-slate-800 flex justify-between">
-        <span>📜 Move History</span>
-        <span>{history.length} moves</span>
-      </div>
-
-      <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-1 pr-1 font-mono text-xs">
-        {movesPairs.length === 0 ? (
-          <div className="text-slate-600 text-center py-4">No moves yet</div>
+    <div className="w-full bg-slate-900/80 border border-slate-800 rounded-xl p-4 backdrop-blur-md">
+      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
+        <span>📜</span> Move History
+      </h3>
+      <div className="max-h-48 overflow-y-auto space-y-1 text-xs font-mono pr-2">
+        {movePairs.length === 0 ? (
+          <p className="text-slate-600 italic">No moves made yet.</p>
         ) : (
-          movesPairs.map((pair) => (
-            <div key={pair.number} className="grid grid-cols-12 gap-1 py-0.5 px-2 rounded hover:bg-slate-800/50">
-              <span className="col-span-2 text-slate-500">{pair.number}.</span>
-              <span className="col-span-5 text-slate-200 font-semibold">{pair.white}</span>
-              <span className="col-span-5 text-slate-400">{pair.black}</span>
+          movePairs.map((pair, idx) => (
+            <div
+              key={idx}
+              className="flex justify-between items-center py-1 px-2 rounded bg-slate-950/40 border border-slate-800/50"
+            >
+              <span className="text-slate-500 w-8">{idx + 1}.</span>
+              <span className="text-slate-200 font-semibold flex-1">
+                {pair.white}
+              </span>
+              <span className="text-slate-400 flex-1 text-right">
+                {pair.black || "..."}
+              </span>
             </div>
           ))
         )}
