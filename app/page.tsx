@@ -1,5 +1,6 @@
 "use client";
 
+import LiveChat from "@/components/LiveChat";
 import { useState, useEffect, useRef, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { Chess } from "chess.js";
