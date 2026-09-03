@@ -694,9 +694,21 @@ export default function Home() {
 
   const activeTheme = BOARD_THEMES[boardTheme] || BOARD_THEMES.green;
 
+  // Global Background Styling
+  const backgroundStyle = {
+    backgroundImage: `linear-gradient(to bottom, rgba(2, 6, 23, 0.75), rgba(2, 6, 23, 0.85)), url('/bg-chess.png')`,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    backgroundAttachment: "fixed",
+  };
+
   if (loadingProfile) {
     return (
-      <main className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center font-mono">
+      <main
+        style={backgroundStyle}
+        className="min-h-screen text-slate-100 flex items-center justify-center font-mono"
+      >
         <div className="text-emerald-400 animate-pulse font-bold text-lg">
           Loading...
         </div>
@@ -707,7 +719,10 @@ export default function Home() {
   // LANDING PAGE (Unauthenticated Users)
   if (!profile && activeTab === "lobby") {
     return (
-      <main className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center p-4 md:p-8 font-mono relative overflow-hidden">
+      <main
+        style={backgroundStyle}
+        className="min-h-screen text-slate-100 flex flex-col items-center p-4 md:p-8 font-mono relative overflow-hidden"
+      >
         <div className="fixed -top-20 -left-20 w-[500px] h-[500px] bg-emerald-500/10 rounded-full blur-[140px] pointer-events-none" />
         <div className="fixed -bottom-20 -right-20 w-[500px] h-[500px] bg-cyan-600/10 rounded-full blur-[140px] pointer-events-none" />
 
@@ -720,7 +735,7 @@ export default function Home() {
               Chess<span className="text-emerald-400">Bet</span>
             </span>
           </div>
-          <span className="text-xs text-slate-400 bg-slate-900/80 border border-slate-800 px-3 py-1.5 rounded-xl flex items-center gap-2">
+          <span className="text-xs text-slate-400 bg-slate-900/80 border border-slate-800 px-3 py-1.5 rounded-xl flex items-center gap-2 backdrop-blur-md">
             <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
             👁️ Spectator Mode
           </span>
@@ -825,7 +840,7 @@ export default function Home() {
           </div>
 
           {/* Read-Only Lobby */}
-          <div className="lg:col-span-7 bg-slate-900/40 backdrop-blur-md border border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-xl">
+          <div className="lg:col-span-7 bg-slate-900/60 backdrop-blur-md border border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-xl">
             <div className="mb-4 flex justify-between items-center bg-slate-950/60 p-3 rounded-xl border border-slate-800">
               <span className="text-xs font-bold text-amber-400 flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
@@ -847,7 +862,10 @@ export default function Home() {
 
   // MAIN APP VIEW (Authenticated User or Active Match View)
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center p-4 md:p-8 font-mono">
+    <main
+      style={backgroundStyle}
+      className="min-h-screen text-slate-100 flex flex-col items-center p-4 md:p-8 font-mono"
+    >
       <header className="w-full max-w-6xl flex justify-between items-center pb-6 mb-8 border-b border-slate-800/80">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20">
@@ -861,25 +879,25 @@ export default function Home() {
         <div className="flex gap-4 items-center">
           <button
             onClick={() => resetToLobby()}
-            className={`px-4 py-2 rounded-xl text-sm font-bold transition cursor-pointer ${
+            className={`px-4 py-2 rounded-xl text-sm font-bold transition cursor-pointer backdrop-blur-md ${
               activeTab === "lobby"
                 ? "bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20"
-                : "bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800"
+                : "bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800"
             }`}
           >
             Lobby
           </button>
           {profile ? (
             <div className="flex items-center gap-3">
-              <div className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-mono text-emerald-400 flex items-center gap-1">
+              <div className="bg-slate-900/80 backdrop-blur-md border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-mono text-emerald-400 flex items-center gap-1">
                 <span>💰</span> {profile.balance} USDT
               </div>
-              <div className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-mono text-slate-200">
+              <div className="bg-slate-900/80 backdrop-blur-md border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-mono text-slate-200">
                 👤 {profile.username}
               </div>
               <button
                 onClick={handleLogout}
-                className="px-3 py-1.5 bg-rose-500/10 border border-rose-500/30 text-rose-400 font-bold rounded-xl text-xs hover:bg-rose-500/20 transition cursor-pointer"
+                className="px-3 py-1.5 bg-rose-500/10 border border-rose-500/30 text-rose-400 font-bold rounded-xl text-xs hover:bg-rose-500/20 transition cursor-pointer backdrop-blur-md"
               >
                 Log Out
               </button>
@@ -940,7 +958,7 @@ export default function Home() {
             <div className="w-full flex flex-col gap-2 max-w-[500px]">
               {/* Active Offers Notification */}
               {drawOfferedBy && drawOfferedBy !== profile?.username && (
-                <div className="bg-amber-500/20 border border-amber-500/40 p-3 rounded-xl flex items-center justify-between text-xs text-amber-300">
+                <div className="bg-amber-500/20 backdrop-blur-md border border-amber-500/40 p-3 rounded-xl flex items-center justify-between text-xs text-amber-300">
                   <span>🤝 {drawOfferedBy} offers a draw. Accept?</span>
                   <div className="flex gap-2">
                     <button
@@ -960,7 +978,7 @@ export default function Home() {
               )}
 
               {takebackOfferedBy && takebackOfferedBy !== profile?.username && (
-                <div className="bg-amber-500/20 border border-amber-500/40 p-3 rounded-xl flex items-center justify-between text-xs text-amber-300">
+                <div className="bg-amber-500/20 backdrop-blur-md border border-amber-500/40 p-3 rounded-xl flex items-center justify-between text-xs text-amber-300">
                   <span>↩️ {takebackOfferedBy} requests a takeback. Accept?</span>
                   <div className="flex gap-2">
                     <button
@@ -982,7 +1000,7 @@ export default function Home() {
               <div className="w-full flex justify-between flex-wrap gap-2">
                 <button
                   onClick={handleLeaveGame}
-                  className="bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer"
+                  className="bg-rose-500/10 hover:bg-rose-500/20 backdrop-blur-md text-rose-400 border border-rose-500/30 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer"
                 >
                   {gameStatus === "waiting"
                     ? "🚫 Cancel Game"
@@ -993,13 +1011,13 @@ export default function Home() {
                   <>
                     <button
                       onClick={offerDraw}
-                      className="bg-slate-900 hover:bg-slate-800 border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-400 transition cursor-pointer"
+                      className="bg-slate-900/80 hover:bg-slate-800 backdrop-blur-md border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-400 transition cursor-pointer"
                     >
                       🤝 Offer Draw
                     </button>
                     <button
                       onClick={requestTakeback}
-                      className="bg-slate-900 hover:bg-slate-800 border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold text-sky-400 transition cursor-pointer"
+                      className="bg-slate-900/80 hover:bg-slate-800 backdrop-blur-md border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold text-sky-400 transition cursor-pointer"
                     >
                       ↩️ Takeback
                     </button>
@@ -1008,14 +1026,14 @@ export default function Home() {
 
                 <button
                   onClick={toggleBoardOrientation}
-                  className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-300 transition cursor-pointer"
+                  className="flex items-center gap-2 bg-slate-900/80 hover:bg-slate-800 backdrop-blur-md border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-300 transition cursor-pointer"
                 >
                   🔄 Flip Board ({userOrientation.toUpperCase()})
                 </button>
               </div>
             </div>
 
-            <div className="w-full max-w-[500px] aspect-square shadow-2xl rounded-xl overflow-hidden border-2 border-slate-800 bg-slate-900">
+            <div className="w-full max-w-[500px] aspect-square shadow-2xl rounded-xl overflow-hidden border-2 border-slate-800 bg-slate-900/90">
               <Chessboard
                 id={`chess_board_${currentChallenge?.id || "default"}`}
                 position={game.fen()}
