@@ -75,18 +75,6 @@ export default function Home() {
 
   const channelRef = useRef<RealtimeChannel | null>(null);
 
-  // Reset function
-  const resetToLobby = useCallback(() => {
-    setActiveTab("lobby");
-    setCurrentChallenge(null);
-    const newG = new Chess();
-    setGame(newG);
-    setMoveList([]);
-    setGameStatus("waiting");
-    setDrawOfferedBy(null);
-    setTakebackOfferedBy(null);
-  }, []);
-
   // Fetch Profile
   const fetchProfile = useCallback(async (userId: string) => {
     const { data } = await supabase
@@ -99,6 +87,21 @@ export default function Home() {
       setProfile(data as UserProfile);
     }
   }, []);
+
+  // Reset function
+  const resetToLobby = useCallback(() => {
+    setActiveTab("lobby");
+    setCurrentChallenge(null);
+    const newG = new Chess();
+    setGame(newG);
+    setMoveList([]);
+    setGameStatus("waiting");
+    setDrawOfferedBy(null);
+    setTakebackOfferedBy(null);
+    if (profile?.id) {
+      fetchProfile(profile.id);
+    }
+  }, [profile?.id, fetchProfile]);
 
   // Fetch Session
   const fetchSessionAndProfile = useCallback(async () => {
@@ -174,7 +177,7 @@ export default function Home() {
 
   const handleTimeout = useCallback(
     async (timedOutColor: "w" | "b") => {
-      if (gameStatus !== "live") return;
+      if (gameStatus !== "live" || !currentChallenge?.id) return;
 
       const winner = timedOutColor === "w" ? "Black" : "White";
 
@@ -186,10 +189,10 @@ export default function Home() {
         });
       }
 
-      await supabase
-        .from("games")
-        .update({ status: "completed", winner })
-        .eq("id", currentChallenge?.id);
+      await supabase.rpc("settle_game_payout", {
+        game_id_input: currentChallenge.id,
+        winner_input: winner,
+      });
 
       alert(`⏰ Time's up! ${winner} wins on time!`);
       resetToLobby();
@@ -413,13 +416,10 @@ export default function Home() {
           });
         }
 
-        await supabase
-          .from("games")
-          .update({
-            status: "completed",
-            winner: winnerName,
-          })
-          .eq("id", gameId);
+        await supabase.rpc("settle_game_payout", {
+          game_id_input: gameId,
+          winner_input: winnerName,
+        });
 
         resetToLobby();
       }
@@ -439,7 +439,7 @@ export default function Home() {
   };
 
   const respondDraw = async (accept: boolean) => {
-    if (!channelRef.current) return;
+    if (!channelRef.current || !currentChallenge?.id) return;
     if (accept) {
       channelRef.current.send({
         type: "broadcast",
@@ -447,10 +447,10 @@ export default function Home() {
         payload: { winner: "Draw" },
       });
 
-      await supabase
-        .from("games")
-        .update({ status: "completed", winner: "Draw" })
-        .eq("id", currentChallenge?.id);
+      await supabase.rpc("settle_game_payout", {
+        game_id_input: currentChallenge.id,
+        winner_input: "Draw",
+      });
 
       alert("🤝 Game ended in a draw!");
       resetToLobby();
@@ -548,6 +548,17 @@ export default function Home() {
           .then(({ error }) => {
             if (error) console.error("Error updating game:", error);
           });
+
+        if (gameCopy.isGameOver() && currentChallenge?.id) {
+          let winnerStr = "Draw";
+          if (gameCopy.isCheckmate()) {
+            winnerStr = currentTurn === "w" ? "White" : "Black";
+          }
+          supabase.rpc("settle_game_payout", {
+            game_id_input: currentChallenge.id,
+            winner_input: winnerStr,
+          });
+        }
 
         return true;
       }
@@ -685,6 +696,15 @@ export default function Home() {
       return;
     }
 
+    // Գանձում ենք գումարը երկու խաղացողներից էլ RPC-ով
+    const { error: rpcError } = await supabase.rpc("start_game_bet", {
+      game_id_input: challenge.id,
+    });
+
+    if (rpcError) {
+      console.error("Error deducting balance:", rpcError);
+    }
+
     const newGame = new Chess();
     if (existingGame.pgn) {
       newGame.loadPgn(existingGame.pgn);
@@ -712,6 +732,7 @@ export default function Home() {
     setIncrement(incrementSeconds);
     setGameStatus("live");
     setActiveTab("game");
+    await fetchProfile(profile.id);
   };
 
   const handleWatchGame = (challenge: Challenge) => {
@@ -1089,12 +1110,12 @@ export default function Home() {
       )}
 
       {showDepositModal && (
- <DepositModal
-  userId={profile?.id || ''}
-  username={profile?.username || ''}
-  onClose={() => setShowDepositModal(false)}
-/>
-)}
+        <DepositModal
+          userId={profile?.id}
+          username={profile?.username}
+          onClose={() => setShowDepositModal(false)}
+        />
+      )}
     </main>
   );
 }
