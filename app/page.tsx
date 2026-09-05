@@ -194,10 +194,14 @@ export default function Home() {
         winner_input: winner,
       });
 
+      if (profile?.id) {
+        await fetchProfile(profile.id);
+      }
+
       alert(`⏰ Time's up! ${winner} wins on time!`);
       resetToLobby();
     },
-    [gameStatus, currentChallenge?.id, resetToLobby]
+    [gameStatus, currentChallenge?.id, resetToLobby, profile?.id, fetchProfile]
   );
 
   // Realtime Subscriptions & Game State Sync
@@ -250,8 +254,11 @@ export default function Home() {
       config: { broadcast: { self: false } },
     });
 
-    channel.on("broadcast", { event: "game_ended" }, (payload) => {
+    channel.on("broadcast", { event: "game_ended" }, async (payload) => {
       const winnerName = payload.payload?.winner || "Opponent";
+      if (profile?.id) {
+        await fetchProfile(profile.id);
+      }
       alert(`🏆 Game Over! Winner: ${winnerName}`);
       resetToLobby();
     });
@@ -289,7 +296,7 @@ export default function Home() {
     channel.on(
       "postgres_changes",
       { event: "*", schema: "public", table: "games" },
-      (payload) => {
+      async (payload) => {
         const updatedGame = payload.new as any;
         if (updatedGame && updatedGame.id === gameId) {
           if (
@@ -297,6 +304,9 @@ export default function Home() {
             updatedGame.status === "finished"
           ) {
             const winnerName = updatedGame.winner || "Opponent";
+            if (profile?.id) {
+              await fetchProfile(profile.id);
+            }
             alert(`🏆 Game Over! Winner: ${winnerName}`);
             resetToLobby();
             return;
@@ -340,7 +350,7 @@ export default function Home() {
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [currentChallenge?.id, profile?.username, resetToLobby]);
+  }, [currentChallenge?.id, profile?.username, profile?.id, fetchProfile, resetToLobby]);
 
   // Timer Countdown
   useEffect(() => {
@@ -404,8 +414,8 @@ export default function Home() {
         if (currentGame) {
           winnerName =
             currentGame.white_player === profile?.username
-              ? currentGame.black_player || "Black"
-              : currentGame.white_player || "White";
+              ? "Black"
+              : "White";
         }
 
         if (channelRef.current) {
@@ -420,6 +430,10 @@ export default function Home() {
           game_id_input: gameId,
           winner_input: winnerName,
         });
+
+        if (profile?.id) {
+          await fetchProfile(profile.id);
+        }
 
         resetToLobby();
       }
@@ -451,6 +465,10 @@ export default function Home() {
         game_id_input: currentChallenge.id,
         winner_input: "Draw",
       });
+
+      if (profile?.id) {
+        await fetchProfile(profile.id);
+      }
 
       alert("🤝 Game ended in a draw!");
       resetToLobby();
@@ -554,10 +572,16 @@ export default function Home() {
           if (gameCopy.isCheckmate()) {
             winnerStr = currentTurn === "w" ? "White" : "Black";
           }
-          supabase.rpc("settle_game_payout", {
-            game_id_input: currentChallenge.id,
-            winner_input: winnerStr,
-          });
+          supabase
+            .rpc("settle_game_payout", {
+              game_id_input: currentChallenge.id,
+              winner_input: winnerStr,
+            })
+            .then(async () => {
+              if (profile?.id) {
+                await fetchProfile(profile.id);
+              }
+            });
         }
 
         return true;
@@ -705,6 +729,9 @@ export default function Home() {
       console.error("Error deducting balance:", rpcError);
     }
 
+    // Թարմացնում ենք բալանսը էկրանին
+    await fetchProfile(profile.id);
+
     const newGame = new Chess();
     if (existingGame.pgn) {
       newGame.loadPgn(existingGame.pgn);
@@ -732,7 +759,6 @@ export default function Home() {
     setIncrement(incrementSeconds);
     setGameStatus("live");
     setActiveTab("game");
-    await fetchProfile(profile.id);
   };
 
   const handleWatchGame = (challenge: Challenge) => {
