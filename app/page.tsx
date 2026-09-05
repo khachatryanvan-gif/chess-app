@@ -113,6 +113,23 @@ export default function Home() {
 
   const channelRef = useRef<RealtimeChannel | null>(null);
 
+  // Unlock Web Audio API context on first user interaction
+  useEffect(() => {
+    const unlockAudio = () => {
+      soundManager.play("move", true); // play muted to unblock audio context
+      window.removeEventListener("click", unlockAudio);
+      window.removeEventListener("keydown", unlockAudio);
+    };
+
+    window.addEventListener("click", unlockAudio);
+    window.addEventListener("keydown", unlockAudio);
+
+    return () => {
+      window.removeEventListener("click", unlockAudio);
+      window.removeEventListener("keydown", unlockAudio);
+    };
+  }, []);
+
   // Dynamic Confetti Trigger
   const triggerConfetti = useCallback(async () => {
     try {
