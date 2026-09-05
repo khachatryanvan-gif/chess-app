@@ -1076,7 +1076,6 @@ export default function Home() {
           </div>
 
           <div className="lg:col-span-5 flex flex-col gap-6 w-full">
-            {/* 🔴 Փոխանցվում է moveList state-ը MoveHistory բաղադրիչին 🔴 */}
             <MoveHistory history={moveList} />
 
             {currentChallenge?.id && (
@@ -1090,8 +1089,12 @@ export default function Home() {
       )}
 
       {showDepositModal && (
-        <DepositModal onClose={() => setShowDepositModal(false)} />
-      )}
+ <DepositModal
+  userId={profile?.id || ''}
+  username={profile?.username || ''}
+  onClose={() => setShowDepositModal(false)}
+/>
+)}
     </main>
   );
 }
