@@ -42,6 +42,7 @@ const parseTimeControl = (tc: string) => {
 
 export default function Home() {
   const [game, setGame] = useState<Chess>(new Chess());
+  const [moveList, setMoveList] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<"lobby" | "game">("lobby");
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
@@ -78,7 +79,9 @@ export default function Home() {
   const resetToLobby = useCallback(() => {
     setActiveTab("lobby");
     setCurrentChallenge(null);
-    setGame(new Chess());
+    const newG = new Chess();
+    setGame(newG);
+    setMoveList([]);
     setGameStatus("waiting");
     setDrawOfferedBy(null);
     setTakebackOfferedBy(null);
@@ -112,7 +115,6 @@ export default function Home() {
     setLoadingProfile(false);
   }, [fetchProfile]);
 
-  // 1. Auth Listener
   useEffect(() => {
     fetchSessionAndProfile();
 
@@ -131,7 +133,6 @@ export default function Home() {
     };
   }, [fetchProfile, fetchSessionAndProfile]);
 
-  // 2. Auth Handlers
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError(null);
@@ -171,7 +172,6 @@ export default function Home() {
     resetToLobby();
   };
 
-  // Handle Timeout
   const handleTimeout = useCallback(
     async (timedOutColor: "w" | "b") => {
       if (gameStatus !== "live") return;
@@ -197,7 +197,7 @@ export default function Home() {
     [gameStatus, currentChallenge?.id, resetToLobby]
   );
 
-  // 3. Realtime Subscriptions & Game State Sync
+  // Realtime Subscriptions & Game State Sync
   useEffect(() => {
     if (!currentChallenge?.id) return;
 
@@ -217,7 +217,14 @@ export default function Home() {
           return;
         }
 
-        if (data.fen) setGame(new Chess(data.fen));
+        const newGame = new Chess();
+        if (data.pgn) {
+          newGame.loadPgn(data.pgn);
+        } else if (data.fen) {
+          newGame.load(data.fen);
+        }
+        setGame(newGame);
+        setMoveList(newGame.history());
         setWhiteTime(data.white_time ?? 180);
         setBlackTime(data.black_time ?? 180);
         setGameStatus(data.status);
@@ -246,7 +253,6 @@ export default function Home() {
       resetToLobby();
     });
 
-    // Draw Offers
     channel.on("broadcast", { event: "draw_offer" }, (payload) => {
       setDrawOfferedBy(payload.payload.username);
     });
@@ -256,7 +262,6 @@ export default function Home() {
       setDrawOfferedBy(null);
     });
 
-    // Takeback Offers
     channel.on("broadcast", { event: "takeback_offer" }, (payload) => {
       setTakebackOfferedBy(payload.payload.username);
     });
@@ -267,9 +272,14 @@ export default function Home() {
     });
 
     channel.on("broadcast", { event: "takeback_accepted" }, (payload) => {
-      if (payload.payload?.fen) {
-        setGame(new Chess(payload.payload.fen));
+      const newGame = new Chess();
+      if (payload.payload?.pgn) {
+        newGame.loadPgn(payload.payload.pgn);
+      } else if (payload.payload?.fen) {
+        newGame.load(payload.payload.fen);
       }
+      setGame(newGame);
+      setMoveList(newGame.history());
       setTakebackOfferedBy(null);
     });
 
@@ -289,7 +299,15 @@ export default function Home() {
             return;
           }
 
-          if (updatedGame.fen) setGame(new Chess(updatedGame.fen));
+          const newGame = new Chess();
+          if (updatedGame.pgn) {
+            newGame.loadPgn(updatedGame.pgn);
+          } else if (updatedGame.fen) {
+            newGame.load(updatedGame.fen);
+          }
+          setGame(newGame);
+          setMoveList(newGame.history());
+
           if (updatedGame.white_time !== undefined)
             setWhiteTime(updatedGame.white_time);
           if (updatedGame.black_time !== undefined)
@@ -321,7 +339,7 @@ export default function Home() {
     };
   }, [currentChallenge?.id, profile?.username, resetToLobby]);
 
-  // 4. Timer Countdown
+  // Timer Countdown
   useEffect(() => {
     if (gameStatus !== "live" || game.isGameOver()) return;
 
@@ -410,7 +428,6 @@ export default function Home() {
     }
   };
 
-  // Draw & Takeback Handlers
   const offerDraw = () => {
     if (!channelRef.current || !profile) return;
     channelRef.current.send({
@@ -459,24 +476,27 @@ export default function Home() {
   const respondTakeback = async (accept: boolean) => {
     if (!channelRef.current) return;
     if (accept) {
-      const history = game.history({ verbose: true });
-      if (history.length > 0) {
-        const gameCopy = new Chess();
-        for (let i = 0; i < history.length - 1; i++) {
-          gameCopy.move(history[i]);
-        }
+      const gameCopy = new Chess();
+      gameCopy.loadPgn(game.pgn());
+
+      const undoneMove = gameCopy.undo();
+
+      if (undoneMove) {
         const newFen = gameCopy.fen();
+        const newPgn = gameCopy.pgn();
+
         setGame(gameCopy);
+        setMoveList(gameCopy.history());
 
         await supabase
           .from("games")
-          .update({ fen: newFen, turn: gameCopy.turn() })
+          .update({ fen: newFen, pgn: newPgn, turn: gameCopy.turn() })
           .eq("id", currentChallenge?.id);
 
         channelRef.current.send({
           type: "broadcast",
           event: "takeback_accepted",
-          payload: { fen: newFen },
+          payload: { fen: newFen, pgn: newPgn },
         });
       }
       setTakebackOfferedBy(null);
@@ -489,17 +509,18 @@ export default function Home() {
     }
   };
 
-  // 5. Move Logic with Sound Effects
+  // Move Logic with PGN Sync & Sound
   const makeAMove = (move: any): boolean => {
     try {
-      const gameCopy = new Chess(game.fen());
+      const gameCopy = new Chess();
+      gameCopy.loadPgn(game.pgn());
       const currentTurn = gameCopy.turn();
       const result = gameCopy.move(move);
 
       if (result) {
         setGame(gameCopy);
+        setMoveList(gameCopy.history());
 
-        // 🔊 Sound Trigger
         if (gameCopy.inCheck()) {
           soundEffects.playCheck();
         } else if (result.captured) {
@@ -517,6 +538,7 @@ export default function Home() {
           .from("games")
           .update({
             fen: gameCopy.fen(),
+            pgn: gameCopy.pgn(),
             turn: gameCopy.turn(),
             white_time: newWhiteTime,
             black_time: newBlackTime,
@@ -550,8 +572,7 @@ export default function Home() {
     });
   };
 
-  // 6. Game Actions
- const handleCreateGame = async (
+  const handleCreateGame = async (
     bet: number,
     timeControl: string,
     color: string,
@@ -577,7 +598,6 @@ export default function Home() {
 
     const isCreatorWhite = assignedColor === "white";
 
-    // 🔴 ԱՀԱ ԱՅՍ ՀԱՏՎԱԾԸ ՓՈԽԱՐԻՆԵՔ 🔴
     const { data, error } = await supabase
       .from("games")
       .insert([
@@ -585,10 +605,10 @@ export default function Home() {
           white_player: isCreatorWhite ? profile.username : null,
           black_player: isCreatorWhite ? null : profile.username,
           fen: newGame.fen(),
+          pgn: newGame.pgn(),
           status: "waiting",
           turn: "w",
           bet,
-          wager: bet,
           time_control: timeControl,
           color: assignedColor,
           theme,
@@ -616,6 +636,7 @@ export default function Home() {
       };
 
       setGame(newGame);
+      setMoveList([]);
       setCurrentChallenge(challenge);
       setIsSpectator(false);
       setUserOrientation(isCreatorWhite ? "white" : "black");
@@ -641,7 +662,7 @@ export default function Home() {
 
     const { data: existingGame } = await supabase
       .from("games")
-      .select("white_player, black_player, theme, time_control, white_time, black_time")
+      .select("white_player, black_player, theme, time_control, white_time, black_time, pgn, fen")
       .eq("id", challenge.id)
       .single();
 
@@ -651,16 +672,8 @@ export default function Home() {
     const myColor = isWhiteTaken ? "black" : "white";
 
     const updateData = isWhiteTaken
-      ? {
-          black_player: profile.username,
-          black_player_id: profile.id,
-          status: "live",
-        }
-      : {
-          white_player: profile.username,
-          white_player_id: profile.id,
-          status: "live",
-        };
+      ? { black_player: profile.username, status: "live" }
+      : { white_player: profile.username, status: "live" };
 
     const { error } = await supabase
       .from("games")
@@ -671,6 +684,16 @@ export default function Home() {
       alert("Error joining game: " + (error.message || "Unknown error"));
       return;
     }
+
+    const newGame = new Chess();
+    if (existingGame.pgn) {
+      newGame.loadPgn(existingGame.pgn);
+    } else if (existingGame.fen) {
+      newGame.load(existingGame.fen);
+    }
+
+    setGame(newGame);
+    setMoveList(newGame.history());
 
     const { incrementSeconds } = parseTimeControl(
       existingGame.time_control || "3+0"
@@ -708,7 +731,6 @@ export default function Home() {
 
   const activeTheme = BOARD_THEMES[boardTheme] || BOARD_THEMES.green;
 
-  // Global Background Styling
   const backgroundStyle = {
     backgroundImage: `linear-gradient(to bottom, rgba(2, 6, 23, 0.75), rgba(2, 6, 23, 0.85)), url('/bg-chess.png')`,
     backgroundSize: "cover",
@@ -730,7 +752,6 @@ export default function Home() {
     );
   }
 
-  // LANDING PAGE (Unauthenticated Users)
   if (!profile && activeTab === "lobby") {
     return (
       <main
@@ -756,7 +777,6 @@ export default function Home() {
         </header>
 
         <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-12 gap-8 z-10 items-start">
-          {/* Auth Form */}
           <div className="lg:col-span-5 bg-slate-900/80 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-6 sm:p-8 shadow-2xl">
             <div className="mb-6 text-center">
               <h2 className="text-xl sm:text-2xl font-black text-emerald-400 tracking-wide uppercase">
@@ -853,7 +873,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Read-Only Lobby */}
           <div className="lg:col-span-7 bg-slate-900/60 backdrop-blur-md border border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-xl">
             <div className="mb-4 flex justify-between items-center bg-slate-950/60 p-3 rounded-xl border border-slate-800">
               <span className="text-xs font-bold text-amber-400 flex items-center gap-2">
@@ -874,7 +893,6 @@ export default function Home() {
     );
   }
 
-  // MAIN APP VIEW (Authenticated User or Active Match View)
   return (
     <main
       style={backgroundStyle}
@@ -943,9 +961,7 @@ export default function Home() {
           />
         </div>
       ) : (
-        /* Game Area with Live Chat side-by-side */
         <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* Board & Clock Column */}
           <div className="lg:col-span-7 flex flex-col items-center gap-4">
             <div className="w-full bg-slate-900/80 p-4 rounded-xl border border-slate-800 flex justify-between items-center text-sm font-semibold backdrop-blur-md">
               <div>
@@ -974,9 +990,7 @@ export default function Home() {
               isGameActive={gameStatus === "live"}
             />
 
-            {/* Action Buttons & Offers */}
             <div className="w-full flex flex-col gap-2 max-w-[500px]">
-              {/* Active Offers Notification */}
               {drawOfferedBy && drawOfferedBy !== profile?.username && (
                 <div className="bg-amber-500/20 backdrop-blur-md border border-amber-500/40 p-3 rounded-xl flex items-center justify-between text-xs text-amber-300">
                   <span>🤝 {drawOfferedBy} offers a draw. Accept?</span>
@@ -989,7 +1003,7 @@ export default function Home() {
                     </button>
                     <button
                       onClick={() => respondDraw(false)}
-                      className="bg-rose-500 text-white font-bold px-2 py-1 rounded hover:bg-rose-400 cursor-pointer"
+                      className="bg-rose-500/30 text-rose-300 font-bold px-2 py-1 rounded hover:bg-rose-500/50 cursor-pointer"
                     >
                       No
                     </button>
@@ -1009,7 +1023,7 @@ export default function Home() {
                     </button>
                     <button
                       onClick={() => respondTakeback(false)}
-                      className="bg-rose-500 text-white font-bold px-2 py-1 rounded hover:bg-rose-400 cursor-pointer"
+                      className="bg-rose-500/30 text-rose-300 font-bold px-2 py-1 rounded hover:bg-rose-500/50 cursor-pointer"
                     >
                       No
                     </button>
@@ -1017,72 +1031,66 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Game Action Controls */}
-              {!isSpectator && gameStatus === "live" && (
-                <div className="flex justify-between items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 text-xs gap-2">
-                  <button
-                    onClick={offerDraw}
-                    className="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg font-bold transition cursor-pointer"
-                  >
-                    🤝 Draw
-                  </button>
-                  <button
-                    onClick={requestTakeback}
-                    className="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg font-bold transition cursor-pointer"
-                  >
-                    ↩️ Takeback
-                  </button>
-                  <button
-                    onClick={toggleBoardOrientation}
-                    className="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg font-bold transition cursor-pointer"
-                  >
-                    🔄 Flip
-                  </button>
-                </div>
-              )}
-
-              <button
-                onClick={handleLeaveGame}
-                className="w-full py-2.5 bg-rose-500/20 border border-rose-500/40 text-rose-400 hover:bg-rose-500/30 font-bold rounded-xl text-xs transition cursor-pointer"
-              >
-                {gameStatus === "live" ? "🏳️ Resign / Leave" : "👈 Exit Match"}
-              </button>
+              <div className="flex gap-2 justify-between">
+                {!isSpectator && gameStatus === "live" && (
+                  <>
+                    <button
+                      onClick={offerDraw}
+                      className="flex-1 py-2 bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition cursor-pointer"
+                    >
+                      🤝 Offer Draw
+                    </button>
+                    <button
+                      onClick={requestTakeback}
+                      className="flex-1 py-2 bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition cursor-pointer"
+                    >
+                      ↩️ Takeback
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={toggleBoardOrientation}
+                  className="px-3 py-2 bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition cursor-pointer"
+                  title="Flip Board"
+                >
+                  🔄
+                </button>
+                <button
+                  onClick={handleLeaveGame}
+                  className="px-4 py-2 bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 text-xs font-bold rounded-xl border border-rose-500/30 transition cursor-pointer"
+                >
+                  {gameStatus === "live" ? "🏳️ Resign" : "Leave"}
+                </button>
+              </div>
             </div>
 
-            {/* Chessboard */}
-            <div className="w-full max-w-[500px] aspect-square rounded-2xl overflow-hidden border-2 border-slate-800 shadow-2xl">
+            <div className="w-full max-w-[500px] aspect-square rounded-2xl overflow-hidden shadow-2xl border border-slate-800">
               <Chessboard
                 position={game.fen()}
                 onPieceDrop={onDrop}
                 boardOrientation={userOrientation}
-                customBoardStyle={{ borderRadius: "0.5rem" }}
                 customDarkSquareStyle={{ backgroundColor: activeTheme.dark }}
                 customLightSquareStyle={{ backgroundColor: activeTheme.light }}
               />
             </div>
           </div>
 
-          {/* Side Column: Move History & Live Chat */}
-          <div className="lg:col-span-5 flex flex-col gap-4">
-            <MoveHistory history={game.history()} />
-            
-            {currentChallenge && profile && (
+          <div className="lg:col-span-5 flex flex-col gap-6 w-full">
+            {/* 🔴 Փոխանցվում է moveList state-ը MoveHistory բաղադրիչին 🔴 */}
+            <MoveHistory history={moveList} />
+
+            {currentChallenge?.id && (
               <LiveChat
                 gameId={currentChallenge.id}
-                username={profile.username}
+                username={profile?.username || "Guest"}
               />
             )}
           </div>
         </div>
       )}
 
-      {/* Deposit Modal */}
-      {showDepositModal && profile && (
-        <DepositModal
-          userId={profile.id}
-          username={profile.username}
-          onClose={() => setShowDepositModal(false)}
-        />
+      {showDepositModal && (
+        <DepositModal onClose={() => setShowDepositModal(false)} />
       )}
     </main>
   );
