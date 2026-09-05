@@ -10,8 +10,7 @@ import Lobby, { Challenge } from "@/components/Lobby";
 import ChessClock from "@/components/ChessClock";
 import MoveHistory from "@/components/MoveHistory";
 import DepositModal from "@/components/DepositModal";
-import { soundEffects } from "@/lib/sounds";
-import confetti from "canvas-confetti";
+import { soundManager } from "@/lib/sounds";
 
 const Chessboard = dynamic(
   () => import("react-chessboard").then((mod) => mod.Chessboard),
@@ -80,6 +79,9 @@ export default function Home() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
 
+  // Sound Settings State
+  const [isMuted, setIsMuted] = useState(false);
+
   // In-Game Banner State
   const [gameBanner, setGameBanner] = useState<GameBanner | null>(null);
 
@@ -111,9 +113,10 @@ export default function Home() {
 
   const channelRef = useRef<RealtimeChannel | null>(null);
 
-  // Trigger Confetti Celebration
-  const triggerConfetti = useCallback(() => {
+  // Dynamic Confetti Trigger
+  const triggerConfetti = useCallback(async () => {
     try {
+      const confetti = (await import("canvas-confetti")).default;
       confetti({
         particleCount: 120,
         spread: 80,
@@ -307,10 +310,11 @@ export default function Home() {
         await fetchProfile(profile.id);
       }
 
-      // Check if current user is the winner
       const isWinner =
         (winner === "White" && userOrientation === "white") ||
         (winner === "Black" && userOrientation === "black");
+
+      soundManager.play("gameOver", isMuted);
 
       if (isWinner) {
         triggerConfetti();
@@ -322,7 +326,16 @@ export default function Home() {
       });
       setTimeout(() => resetToLobby(), 3000);
     },
-    [gameStatus, currentChallenge?.id, resetToLobby, profile?.id, fetchProfile, userOrientation, triggerConfetti]
+    [
+      gameStatus,
+      currentChallenge?.id,
+      resetToLobby,
+      profile?.id,
+      fetchProfile,
+      userOrientation,
+      triggerConfetti,
+      isMuted,
+    ]
   );
 
   // Realtime Subscriptions & Game State Sync
@@ -343,6 +356,8 @@ export default function Home() {
           const isWinner =
             (data.winner === "White" && userOrientation === "white") ||
             (data.winner === "Black" && userOrientation === "black");
+
+          soundManager.play("gameOver", isMuted);
 
           if (isWinner) {
             triggerConfetti();
@@ -400,6 +415,8 @@ export default function Home() {
       const isWinner =
         (winnerName === "White" && userOrientation === "white") ||
         (winnerName === "Black" && userOrientation === "black");
+
+      soundManager.play("gameOver", isMuted);
 
       if (isWinner) {
         triggerConfetti();
@@ -462,6 +479,8 @@ export default function Home() {
               (winnerName === "White" && userOrientation === "white") ||
               (winnerName === "Black" && userOrientation === "black");
 
+            soundManager.play("gameOver", isMuted);
+
             if (isWinner) {
               triggerConfetti();
             }
@@ -520,7 +539,16 @@ export default function Home() {
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [currentChallenge?.id, profile?.username, profile?.id, fetchProfile, resetToLobby, userOrientation, triggerConfetti]);
+  }, [
+    currentChallenge?.id,
+    profile?.username,
+    profile?.id,
+    fetchProfile,
+    resetToLobby,
+    userOrientation,
+    triggerConfetti,
+    isMuted,
+  ]);
 
   // Timer Countdown
   useEffect(() => {
@@ -632,6 +660,7 @@ export default function Home() {
         await fetchProfile(profile.id);
       }
 
+      soundManager.play("gameOver", isMuted);
       setGameBanner({ type: "info", message: "🤝 Game ended in a draw!" });
       setTimeout(() => resetToLobby(), 3000);
     } else {
@@ -705,12 +734,13 @@ export default function Home() {
         setGame(gameCopy);
         setMoveList(gameCopy.history());
 
+        // Play Sound Effect via soundManager
         if (gameCopy.inCheck()) {
-          soundEffects.playCheck();
+          soundManager.play("check", isMuted);
         } else if (result.captured) {
-          soundEffects.playCapture();
+          soundManager.play("capture", isMuted);
         } else {
-          soundEffects.playMove();
+          soundManager.play("move", isMuted);
         }
 
         const newWhiteTime =
@@ -742,6 +772,8 @@ export default function Home() {
           const isWinner =
             (winnerStr === "White" && userOrientation === "white") ||
             (winnerStr === "Black" && userOrientation === "black");
+
+          soundManager.play("gameOver", isMuted);
 
           if (isWinner) {
             triggerConfetti();
@@ -1232,6 +1264,13 @@ export default function Home() {
                 </>
               )}
               <button
+                onClick={() => setIsMuted((prev) => !prev)}
+                className="px-3 py-2 bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition cursor-pointer"
+                title={isMuted ? "Unmute Sound" : "Mute Sound"}
+              >
+                {isMuted ? "🔇" : "🔊"}
+              </button>
+              <button
                 onClick={toggleBoardOrientation}
                 className="px-3 py-2 bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition cursor-pointer"
                 title="Flip Board"
@@ -1257,7 +1296,7 @@ export default function Home() {
               />
             </div>
 
-            {/* ALL NOTIFICATIONS & OFFERS (ՏԱԽՏԱԿԻ ՏԱԿ) */}
+            {/* ALL NOTIFICATIONS & OFFERS */}
             <div className="w-full max-w-[500px] flex flex-col gap-2">
               {/* Draw Offer */}
               {drawOfferedBy && drawOfferedBy !== profile?.username && (
