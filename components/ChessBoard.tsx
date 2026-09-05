@@ -1,16 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import dynamic from "next/dynamic";
 
-// Կանխում ենք SSR (Server-Side Rendering) խնդիրները react-chessboard-ի համար
 const ReactChessboard = dynamic(
   () => import("react-chessboard").then((mod) => mod.Chessboard),
   { ssr: false }
 );
 
-// Կանաչ և սպիտակ դաշտերի հաստատուն գույներ (չեն թարթում re-render-ի ժամանակ)
-const customDarkSquareStyle = { backgroundColor: "#769656" };
-const customLightSquareStyle = { backgroundColor: "#eeeed2" };
+// Dark Luxury ոճի դաշտերի գույներ (մուգ մոխրագույն/ոսկեգույն երանգով)
+const customDarkSquareStyle = { backgroundColor: "#262421" };
+const customLightSquareStyle = { backgroundColor: "#363431" };
 
 interface ChessboardProps {
   gameId: string;
@@ -29,15 +29,63 @@ export default function Chessboard({
   isSpectator = false,
   isGameOver = false,
 }: ChessboardProps) {
+  // Պահում ենք առաջին սեղմած վանդակը (օր. "e2")
+  const [moveFrom, setMoveFrom] = useState<string | null>(null);
+
+  // Tap-to-Move տրամաբանություն
+  const handleSquareClick = (square: string) => {
+    if (isSpectator || isGameOver) return;
+
+    // 1. Եթե ոչ մի վանդակ ընտրված չէ, ընտրում ենք սույն վանդակը
+    if (!moveFrom) {
+      setMoveFrom(square);
+      return;
+    }
+
+    // 2. Եթե նորից սեղմել է նույն վանդակին, չեղարկում ենք
+    if (moveFrom === square) {
+      setMoveFrom(null);
+      return;
+    }
+
+    // 3. Փորձում ենք կատարել քայլը (moveFrom -> square)
+    const success = onDrop(moveFrom, square);
+
+    if (success) {
+      setMoveFrom(null); // Քայլը հաջողվեց
+    } else {
+      // Եթե անթույլատրելի քայլ էր, նոր սեղմած վանդակն ենք սարքում առաջնային
+      setMoveFrom(square);
+    }
+  };
+
+  // Drag-and-Drop-ի ժամանակ մաքրում ենք Tap-ի selection-ը
+  const handlePieceDrop = (sourceSquare: string, targetSquare: string) => {
+    setMoveFrom(null);
+    return onDrop(sourceSquare, targetSquare);
+  };
+
+  // Ընտրված վանդակի Dark Luxury (ոսկեգույն) styling
+  const customSquareStyles = moveFrom
+    ? {
+        [moveFrom]: {
+          backgroundColor: "rgba(212, 175, 55, 0.4)", // Golden highlight
+          boxShadow: "inset 0 0 8px #d4af37",
+        },
+      }
+    : {};
+
   return (
-    <div className="w-full max-w-[500px] aspect-square shadow-2xl rounded-xl overflow-hidden border-2 border-slate-800 bg-slate-900">
+    <div className="w-full max-w-[500px] aspect-square shadow-2xl rounded-xl overflow-hidden border-2 border-amber-500/20 bg-slate-950">
       <ReactChessboard
         id={`chess_board_${gameId}`}
         position={fen}
-        onPieceDrop={onDrop}
+        onPieceDrop={handlePieceDrop}
+        onSquareClick={handleSquareClick}
         boardOrientation={orientation}
         customDarkSquareStyle={customDarkSquareStyle}
         customLightSquareStyle={customLightSquareStyle}
+        customSquareStyles={customSquareStyles}
         arePiecesDraggable={!isSpectator && !isGameOver}
         animationDuration={150}
       />
