@@ -11,6 +11,7 @@ import ChessClock from "@/components/ChessClock";
 import MoveHistory from "@/components/MoveHistory";
 import DepositModal from "@/components/DepositModal";
 import { soundEffects } from "@/lib/sounds";
+import confetti from "canvas-confetti";
 
 const Chessboard = dynamic(
   () => import("react-chessboard").then((mod) => mod.Chessboard),
@@ -30,6 +31,11 @@ interface UserProfile {
   balance: number;
 }
 
+interface GameBanner {
+  type: "info" | "success" | "warning";
+  message: string;
+}
+
 const parseTimeControl = (tc: string) => {
   const parts = (tc || "3+0").split("+");
   const base = Number(parts[0]);
@@ -40,12 +46,42 @@ const parseTimeControl = (tc: string) => {
   };
 };
 
+const calculateRemainingTime = (
+  whiteTime: number,
+  blackTime: number,
+  turn: "w" | "b",
+  lastMoveAt?: string
+) => {
+  if (!lastMoveAt) return { calculatedWhite: whiteTime, calculatedBlack: blackTime };
+
+  const lastMoveTimestamp = new Date(lastMoveAt).getTime();
+  const now = new Date().getTime();
+  const elapsedSeconds = Math.floor((now - lastMoveTimestamp) / 1000);
+
+  if (elapsedSeconds <= 0) return { calculatedWhite: whiteTime, calculatedBlack: blackTime };
+
+  if (turn === "w") {
+    return {
+      calculatedWhite: Math.max(0, whiteTime - elapsedSeconds),
+      calculatedBlack: blackTime,
+    };
+  } else {
+    return {
+      calculatedWhite: whiteTime,
+      calculatedBlack: Math.max(0, blackTime - elapsedSeconds),
+    };
+  }
+};
+
 export default function Home() {
   const [game, setGame] = useState<Chess>(new Chess());
   const [moveList, setMoveList] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<"lobby" | "game">("lobby");
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
+
+  // In-Game Banner State
+  const [gameBanner, setGameBanner] = useState<GameBanner | null>(null);
 
   // Auth Form State
   const [isRegister, setIsRegister] = useState(false);
@@ -75,6 +111,20 @@ export default function Home() {
 
   const channelRef = useRef<RealtimeChannel | null>(null);
 
+  // Trigger Confetti Celebration
+  const triggerConfetti = useCallback(() => {
+    try {
+      confetti({
+        particleCount: 120,
+        spread: 80,
+        origin: { y: 0.6 },
+        zIndex: 9999,
+      });
+    } catch (e) {
+      console.error("Confetti error:", e);
+    }
+  }, []);
+
   // Fetch Profile
   const fetchProfile = useCallback(async (userId: string) => {
     const { data } = await supabase
@@ -98,10 +148,69 @@ export default function Home() {
     setGameStatus("waiting");
     setDrawOfferedBy(null);
     setTakebackOfferedBy(null);
+    setGameBanner(null);
     if (profile?.id) {
       fetchProfile(profile.id);
     }
   }, [profile?.id, fetchProfile]);
+
+  // Check for active game
+  const checkForActiveGame = useCallback(async (username: string) => {
+    const { data: activeGame, error } = await supabase
+      .from("games")
+      .select("*")
+      .or(`white_player.eq.${username},black_player.eq.${username}`)
+      .in("status", ["waiting", "live"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (activeGame && !error) {
+      const isWhite = activeGame.white_player === username;
+      const { incrementSeconds } = parseTimeControl(activeGame.time_control || "3+0");
+
+      const restoredGame = new Chess();
+      if (activeGame.pgn) {
+        restoredGame.loadPgn(activeGame.pgn);
+      } else if (activeGame.fen) {
+        restoredGame.load(activeGame.fen);
+      }
+
+      const { calculatedWhite, calculatedBlack } = calculateRemainingTime(
+        activeGame.white_time ?? 180,
+        activeGame.black_time ?? 180,
+        restoredGame.turn(),
+        activeGame.last_move_at
+      );
+
+      setGame(restoredGame);
+      setMoveList(restoredGame.history());
+      setCurrentChallenge({
+        id: activeGame.id,
+        creator: activeGame.white_player || activeGame.black_player,
+        opponent: isWhite ? activeGame.black_player : activeGame.white_player,
+        rating: 1500,
+        bet: activeGame.bet,
+        timeControl: activeGame.time_control,
+        status: activeGame.status,
+        theme: activeGame.theme,
+      });
+      setIsSpectator(false);
+      setUserOrientation(isWhite ? "white" : "black");
+      setBoardTheme((activeGame.theme as any) || "green");
+      setWhiteTime(calculatedWhite);
+      setBlackTime(calculatedBlack);
+      setIncrement(incrementSeconds);
+      setGameStatus(activeGame.status);
+      setActiveTab("game");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (profile?.username) {
+      checkForActiveGame(profile.username);
+    }
+  }, [profile?.username, checkForActiveGame]);
 
   // Fetch Session
   const fetchSessionAndProfile = useCallback(async () => {
@@ -152,7 +261,7 @@ export default function Home() {
       if (error) {
         setAuthError(error.message);
       } else if (data.user) {
-        alert("Registration successful!");
+        setGameBanner({ type: "success", message: "Registration successful!" });
         await fetchProfile(data.user.id);
       }
     } else {
@@ -185,7 +294,7 @@ export default function Home() {
         channelRef.current.send({
           type: "broadcast",
           event: "game_ended",
-          payload: { winner },
+          payload: { winner, reason: "time" },
         });
       }
 
@@ -198,10 +307,22 @@ export default function Home() {
         await fetchProfile(profile.id);
       }
 
-      alert(`⏰ Time's up! ${winner} wins on time!`);
-      resetToLobby();
+      // Check if current user is the winner
+      const isWinner =
+        (winner === "White" && userOrientation === "white") ||
+        (winner === "Black" && userOrientation === "black");
+
+      if (isWinner) {
+        triggerConfetti();
+      }
+
+      setGameBanner({
+        type: "warning",
+        message: `⏰ Time's up! ${winner} wins on time!`,
+      });
+      setTimeout(() => resetToLobby(), 3000);
     },
-    [gameStatus, currentChallenge?.id, resetToLobby, profile?.id, fetchProfile]
+    [gameStatus, currentChallenge?.id, resetToLobby, profile?.id, fetchProfile, userOrientation, triggerConfetti]
   );
 
   // Realtime Subscriptions & Game State Sync
@@ -219,8 +340,19 @@ export default function Home() {
 
       if (data) {
         if (data.status === "completed" || data.status === "finished") {
-          alert(`🏆 Game Over! Winner: ${data.winner || "Opponent"}`);
-          resetToLobby();
+          const isWinner =
+            (data.winner === "White" && userOrientation === "white") ||
+            (data.winner === "Black" && userOrientation === "black");
+
+          if (isWinner) {
+            triggerConfetti();
+          }
+
+          setGameBanner({
+            type: "success",
+            message: `🏆 Game Over! Winner: ${data.winner || "Opponent"}`,
+          });
+          setTimeout(() => resetToLobby(), 3000);
           return;
         }
 
@@ -230,10 +362,18 @@ export default function Home() {
         } else if (data.fen) {
           newGame.load(data.fen);
         }
+
+        const { calculatedWhite, calculatedBlack } = calculateRemainingTime(
+          data.white_time ?? 180,
+          data.black_time ?? 180,
+          newGame.turn(),
+          data.last_move_at
+        );
+
         setGame(newGame);
         setMoveList(newGame.history());
-        setWhiteTime(data.white_time ?? 180);
-        setBlackTime(data.black_time ?? 180);
+        setWhiteTime(calculatedWhite);
+        setBlackTime(calculatedBlack);
         setGameStatus(data.status);
 
         if (data.white_player && data.black_player) {
@@ -256,11 +396,23 @@ export default function Home() {
 
     channel.on("broadcast", { event: "game_ended" }, async (payload) => {
       const winnerName = payload.payload?.winner || "Opponent";
+
+      const isWinner =
+        (winnerName === "White" && userOrientation === "white") ||
+        (winnerName === "Black" && userOrientation === "black");
+
+      if (isWinner) {
+        triggerConfetti();
+      }
+
       if (profile?.id) {
         await fetchProfile(profile.id);
       }
-      alert(`🏆 Game Over! Winner: ${winnerName}`);
-      resetToLobby();
+      setGameBanner({
+        type: "success",
+        message: `🏆 Game Over! Winner: ${winnerName}`,
+      });
+      setTimeout(() => resetToLobby(), 3000);
     });
 
     channel.on("broadcast", { event: "draw_offer" }, (payload) => {
@@ -268,7 +420,7 @@ export default function Home() {
     });
 
     channel.on("broadcast", { event: "draw_declined" }, () => {
-      alert("Draw offer was declined.");
+      setGameBanner({ type: "warning", message: "Draw offer was declined." });
       setDrawOfferedBy(null);
     });
 
@@ -277,7 +429,7 @@ export default function Home() {
     });
 
     channel.on("broadcast", { event: "takeback_declined" }, () => {
-      alert("Takeback request was declined.");
+      setGameBanner({ type: "warning", message: "Takeback request was declined." });
       setTakebackOfferedBy(null);
     });
 
@@ -291,6 +443,7 @@ export default function Home() {
       setGame(newGame);
       setMoveList(newGame.history());
       setTakebackOfferedBy(null);
+      setGameBanner({ type: "info", message: "Takeback accepted." });
     });
 
     channel.on(
@@ -304,11 +457,23 @@ export default function Home() {
             updatedGame.status === "finished"
           ) {
             const winnerName = updatedGame.winner || "Opponent";
+
+            const isWinner =
+              (winnerName === "White" && userOrientation === "white") ||
+              (winnerName === "Black" && userOrientation === "black");
+
+            if (isWinner) {
+              triggerConfetti();
+            }
+
             if (profile?.id) {
               await fetchProfile(profile.id);
             }
-            alert(`🏆 Game Over! Winner: ${winnerName}`);
-            resetToLobby();
+            setGameBanner({
+              type: "success",
+              message: `🏆 Game Over! Winner: ${winnerName}`,
+            });
+            setTimeout(() => resetToLobby(), 3000);
             return;
           }
 
@@ -318,13 +483,18 @@ export default function Home() {
           } else if (updatedGame.fen) {
             newGame.load(updatedGame.fen);
           }
-          setGame(newGame);
-          setMoveList(newGame.history());
 
-          if (updatedGame.white_time !== undefined)
-            setWhiteTime(updatedGame.white_time);
-          if (updatedGame.black_time !== undefined)
-            setBlackTime(updatedGame.black_time);
+          const { calculatedWhite, calculatedBlack } = calculateRemainingTime(
+            updatedGame.white_time ?? 180,
+            updatedGame.black_time ?? 180,
+            newGame.turn(),
+            updatedGame.last_move_at
+          );
+
+          setGame(newGame);
+          setMoveList(updatedGame.history ? updatedGame.history : newGame.history());
+          setWhiteTime(calculatedWhite);
+          setBlackTime(calculatedBlack);
           if (updatedGame.status) setGameStatus(updatedGame.status);
 
           const opp =
@@ -337,8 +507,8 @@ export default function Home() {
         }
 
         if (payload.eventType === "DELETE" && (payload.old as any)?.id === gameId) {
-          alert("Game was canceled.");
-          resetToLobby();
+          setGameBanner({ type: "warning", message: "Game was canceled." });
+          setTimeout(() => resetToLobby(), 2000);
         }
       }
     );
@@ -350,7 +520,7 @@ export default function Home() {
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [currentChallenge?.id, profile?.username, profile?.id, fetchProfile, resetToLobby]);
+  }, [currentChallenge?.id, profile?.username, profile?.id, fetchProfile, resetToLobby, userOrientation, triggerConfetti]);
 
   // Timer Countdown
   useEffect(() => {
@@ -391,52 +561,44 @@ export default function Home() {
     const gameId = currentChallenge.id;
 
     if (gameStatus === "waiting") {
-      if (confirm("Do you want to cancel this challenge?")) {
-        await supabase.from("games").delete().eq("id", gameId);
-        resetToLobby();
-      }
+      await supabase.from("games").delete().eq("id", gameId);
+      resetToLobby();
       return;
     }
 
     if (gameStatus === "live") {
-      if (
-        confirm(
-          "Are you sure you want to resign/leave? You will lose this match."
-        )
-      ) {
-        const { data: currentGame } = await supabase
-          .from("games")
-          .select("white_player, black_player")
-          .eq("id", gameId)
-          .single();
+      const { data: currentGame } = await supabase
+        .from("games")
+        .select("white_player, black_player")
+        .eq("id", gameId)
+        .single();
 
-        let winnerName = "Opponent";
-        if (currentGame) {
-          winnerName =
-            currentGame.white_player === profile?.username
-              ? "Black"
-              : "White";
-        }
-
-        if (channelRef.current) {
-          channelRef.current.send({
-            type: "broadcast",
-            event: "game_ended",
-            payload: { winner: winnerName },
-          });
-        }
-
-        await supabase.rpc("settle_game_payout", {
-          game_id_input: gameId,
-          winner_input: winnerName,
-        });
-
-        if (profile?.id) {
-          await fetchProfile(profile.id);
-        }
-
-        resetToLobby();
+      let winnerName = "Opponent";
+      if (currentGame) {
+        winnerName =
+          currentGame.white_player === profile?.username
+            ? "Black"
+            : "White";
       }
+
+      if (channelRef.current) {
+        channelRef.current.send({
+          type: "broadcast",
+          event: "game_ended",
+          payload: { winner: winnerName },
+        });
+      }
+
+      await supabase.rpc("settle_game_payout", {
+        game_id_input: gameId,
+        winner_input: winnerName,
+      });
+
+      if (profile?.id) {
+        await fetchProfile(profile.id);
+      }
+
+      resetToLobby();
     } else {
       resetToLobby();
     }
@@ -449,7 +611,7 @@ export default function Home() {
       event: "draw_offer",
       payload: { username: profile.username },
     });
-    alert("Draw offer sent to opponent.");
+    setGameBanner({ type: "info", message: "Draw offer sent to opponent." });
   };
 
   const respondDraw = async (accept: boolean) => {
@@ -470,8 +632,8 @@ export default function Home() {
         await fetchProfile(profile.id);
       }
 
-      alert("🤝 Game ended in a draw!");
-      resetToLobby();
+      setGameBanner({ type: "info", message: "🤝 Game ended in a draw!" });
+      setTimeout(() => resetToLobby(), 3000);
     } else {
       channelRef.current.send({
         type: "broadcast",
@@ -488,7 +650,7 @@ export default function Home() {
       event: "takeback_offer",
       payload: { username: profile.username },
     });
-    alert("Takeback request sent.");
+    setGameBanner({ type: "info", message: "Takeback request sent." });
   };
 
   const respondTakeback = async (accept: boolean) => {
@@ -508,7 +670,12 @@ export default function Home() {
 
         await supabase
           .from("games")
-          .update({ fen: newFen, pgn: newPgn, turn: gameCopy.turn() })
+          .update({
+            fen: newFen,
+            pgn: newPgn,
+            turn: gameCopy.turn(),
+            last_move_at: new Date().toISOString(),
+          })
           .eq("id", currentChallenge?.id);
 
         channelRef.current.send({
@@ -527,7 +694,6 @@ export default function Home() {
     }
   };
 
-  // Move Logic with PGN Sync & Sound
   const makeAMove = (move: any): boolean => {
     try {
       const gameCopy = new Chess();
@@ -572,6 +738,15 @@ export default function Home() {
           if (gameCopy.isCheckmate()) {
             winnerStr = currentTurn === "w" ? "White" : "Black";
           }
+
+          const isWinner =
+            (winnerStr === "White" && userOrientation === "white") ||
+            (winnerStr === "Black" && userOrientation === "black");
+
+          if (isWinner) {
+            triggerConfetti();
+          }
+
           supabase
             .rpc("settle_game_payout", {
               game_id_input: currentChallenge.id,
@@ -614,12 +789,12 @@ export default function Home() {
     theme: string
   ) => {
     if (!profile) {
-      alert("You need to log in to create a game.");
+      setGameBanner({ type: "warning", message: "Log in to create a game." });
       return;
     }
 
     if (profile.balance < bet) {
-      alert("Insufficient balance to place this bet.");
+      setGameBanner({ type: "warning", message: "Insufficient balance." });
       return;
     }
 
@@ -649,13 +824,14 @@ export default function Home() {
           theme,
           white_time: baseSeconds,
           black_time: baseSeconds,
+          last_move_at: new Date().toISOString(),
         },
       ])
       .select()
       .single();
 
     if (error) {
-      alert("Error creating game: " + (error.message || "Unknown error"));
+      setGameBanner({ type: "warning", message: error.message });
       return;
     }
 
@@ -686,12 +862,12 @@ export default function Home() {
 
   const handleJoinGame = async (challenge: Challenge) => {
     if (!profile) {
-      alert("You need to log in to join a game.");
+      setGameBanner({ type: "warning", message: "Log in to join a game." });
       return;
     }
 
     if (profile.balance < (challenge.bet || 0)) {
-      alert("Insufficient balance to join this game.");
+      setGameBanner({ type: "warning", message: "Insufficient balance." });
       return;
     }
 
@@ -707,8 +883,8 @@ export default function Home() {
     const myColor = isWhiteTaken ? "black" : "white";
 
     const updateData = isWhiteTaken
-      ? { black_player: profile.username, status: "live" }
-      : { white_player: profile.username, status: "live" };
+      ? { black_player: profile.username, status: "live", last_move_at: new Date().toISOString() }
+      : { white_player: profile.username, status: "live", last_move_at: new Date().toISOString() };
 
     const { error } = await supabase
       .from("games")
@@ -716,11 +892,10 @@ export default function Home() {
       .eq("id", challenge.id);
 
     if (error) {
-      alert("Error joining game: " + (error.message || "Unknown error"));
+      setGameBanner({ type: "warning", message: error.message });
       return;
     }
 
-    // Գանձում ենք գումարը երկու խաղացողներից էլ RPC-ով
     const { error: rpcError } = await supabase.rpc("start_game_bet", {
       game_id_input: challenge.id,
     });
@@ -729,7 +904,6 @@ export default function Home() {
       console.error("Error deducting balance:", rpcError);
     }
 
-    // Թարմացնում ենք բալանսը էկրանին
     await fetchProfile(profile.id);
 
     const newGame = new Chess();
@@ -1010,6 +1184,7 @@ export default function Home() {
       ) : (
         <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <div className="lg:col-span-7 flex flex-col items-center gap-4">
+            {/* Top Match Info Bar */}
             <div className="w-full bg-slate-900/80 p-4 rounded-xl border border-slate-800 flex justify-between items-center text-sm font-semibold backdrop-blur-md">
               <div>
                 <span className="text-slate-400">Creator: </span>
@@ -1030,6 +1205,7 @@ export default function Home() {
               </div>
             </div>
 
+            {/* Chess Clock */}
             <ChessClock
               whiteTime={whiteTime}
               blackTime={blackTime}
@@ -1037,80 +1213,40 @@ export default function Home() {
               isGameActive={gameStatus === "live"}
             />
 
-            <div className="w-full flex flex-col gap-2 max-w-[500px]">
-              {drawOfferedBy && drawOfferedBy !== profile?.username && (
-                <div className="bg-amber-500/20 backdrop-blur-md border border-amber-500/40 p-3 rounded-xl flex items-center justify-between text-xs text-amber-300">
-                  <span>🤝 {drawOfferedBy} offers a draw. Accept?</span>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => respondDraw(true)}
-                      className="bg-emerald-500 text-slate-950 font-bold px-2 py-1 rounded hover:bg-emerald-400 cursor-pointer"
-                    >
-                      Yes
-                    </button>
-                    <button
-                      onClick={() => respondDraw(false)}
-                      className="bg-rose-500/30 text-rose-300 font-bold px-2 py-1 rounded hover:bg-rose-500/50 cursor-pointer"
-                    >
-                      No
-                    </button>
-                  </div>
-                </div>
+            {/* Interactive Control Buttons */}
+            <div className="w-full flex gap-2 justify-between max-w-[500px]">
+              {!isSpectator && gameStatus === "live" && (
+                <>
+                  <button
+                    onClick={offerDraw}
+                    className="flex-1 py-2 bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition cursor-pointer"
+                  >
+                    🤝 Offer Draw
+                  </button>
+                  <button
+                    onClick={requestTakeback}
+                    className="flex-1 py-2 bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition cursor-pointer"
+                  >
+                    ↩️ Takeback
+                  </button>
+                </>
               )}
-
-              {takebackOfferedBy && takebackOfferedBy !== profile?.username && (
-                <div className="bg-amber-500/20 backdrop-blur-md border border-amber-500/40 p-3 rounded-xl flex items-center justify-between text-xs text-amber-300">
-                  <span>↩️ {takebackOfferedBy} requests a takeback. Accept?</span>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => respondTakeback(true)}
-                      className="bg-emerald-500 text-slate-950 font-bold px-2 py-1 rounded hover:bg-emerald-400 cursor-pointer"
-                    >
-                      Yes
-                    </button>
-                    <button
-                      onClick={() => respondTakeback(false)}
-                      className="bg-rose-500/30 text-rose-300 font-bold px-2 py-1 rounded hover:bg-rose-500/50 cursor-pointer"
-                    >
-                      No
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex gap-2 justify-between">
-                {!isSpectator && gameStatus === "live" && (
-                  <>
-                    <button
-                      onClick={offerDraw}
-                      className="flex-1 py-2 bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition cursor-pointer"
-                    >
-                      🤝 Offer Draw
-                    </button>
-                    <button
-                      onClick={requestTakeback}
-                      className="flex-1 py-2 bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition cursor-pointer"
-                    >
-                      ↩️ Takeback
-                    </button>
-                  </>
-                )}
-                <button
-                  onClick={toggleBoardOrientation}
-                  className="px-3 py-2 bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition cursor-pointer"
-                  title="Flip Board"
-                >
-                  🔄
-                </button>
-                <button
-                  onClick={handleLeaveGame}
-                  className="px-4 py-2 bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 text-xs font-bold rounded-xl border border-rose-500/30 transition cursor-pointer"
-                >
-                  {gameStatus === "live" ? "🏳️ Resign" : "Leave"}
-                </button>
-              </div>
+              <button
+                onClick={toggleBoardOrientation}
+                className="px-3 py-2 bg-slate-800/80 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl border border-slate-700 transition cursor-pointer"
+                title="Flip Board"
+              >
+                🔄
+              </button>
+              <button
+                onClick={handleLeaveGame}
+                className="px-4 py-2 bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 text-xs font-bold rounded-xl border border-rose-500/30 transition cursor-pointer"
+              >
+                {gameStatus === "live" ? "🏳️ Resign" : "Leave"}
+              </button>
             </div>
 
+            {/* Chessboard */}
             <div className="w-full max-w-[500px] aspect-square rounded-2xl overflow-hidden shadow-2xl border border-slate-800">
               <Chessboard
                 position={game.fen()}
@@ -1119,6 +1255,66 @@ export default function Home() {
                 customDarkSquareStyle={{ backgroundColor: activeTheme.dark }}
                 customLightSquareStyle={{ backgroundColor: activeTheme.light }}
               />
+            </div>
+
+            {/* ALL NOTIFICATIONS & OFFERS (ՏԱԽՏԱԿԻ ՏԱԿ) */}
+            <div className="w-full max-w-[500px] flex flex-col gap-2">
+              {/* Draw Offer */}
+              {drawOfferedBy && drawOfferedBy !== profile?.username && (
+                <div className="bg-amber-500/20 backdrop-blur-md border border-amber-500/40 p-3 rounded-xl flex items-center justify-between text-xs text-amber-300">
+                  <span>🤝 {drawOfferedBy} offers a draw. Accept?</span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => respondDraw(true)}
+                      className="bg-emerald-500 text-slate-950 font-bold px-2.5 py-1 rounded-lg hover:bg-emerald-400 cursor-pointer transition"
+                    >
+                      Yes
+                    </button>
+                    <button
+                      onClick={() => respondDraw(false)}
+                      className="bg-rose-500/30 text-rose-300 font-bold px-2.5 py-1 rounded-lg hover:bg-rose-500/50 cursor-pointer transition"
+                    >
+                      No
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Takeback Offer */}
+              {takebackOfferedBy && takebackOfferedBy !== profile?.username && (
+                <div className="bg-amber-500/20 backdrop-blur-md border border-amber-500/40 p-3 rounded-xl flex items-center justify-between text-xs text-amber-300">
+                  <span>↩️ {takebackOfferedBy} requests a takeback. Accept?</span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => respondTakeback(true)}
+                      className="bg-emerald-500 text-slate-950 font-bold px-2.5 py-1 rounded-lg hover:bg-emerald-400 cursor-pointer transition"
+                    >
+                      Yes
+                    </button>
+                    <button
+                      onClick={() => respondTakeback(false)}
+                      className="bg-rose-500/30 text-rose-300 font-bold px-2.5 py-1 rounded-lg hover:bg-rose-500/50 cursor-pointer transition"
+                    >
+                      No
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Status Game Banner */}
+              {gameBanner && (
+                <div
+                  className={`w-full p-3 rounded-xl border text-center text-xs font-bold backdrop-blur-md transition-all ${
+                    gameBanner.type === "success"
+                      ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
+                      : gameBanner.type === "warning"
+                      ? "bg-amber-500/20 border-amber-500/40 text-amber-300"
+                      : "bg-cyan-500/20 border-cyan-500/40 text-cyan-300"
+                  }`}
+                >
+                  {gameBanner.message}
+                </div>
+              )}
             </div>
           </div>
 

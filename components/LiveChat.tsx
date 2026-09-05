@@ -27,15 +27,43 @@ export default function LiveChat({
   const channelRef = useRef<RealtimeChannel | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
 
-  // Auto-scroll to latest message
+  // Auto-scroll
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Fetch History & Subscribe to Realtime
   useEffect(() => {
     if (!gameId) return;
 
-    // Join room channel for live chat
+    const fetchChatHistory = async () => {
+      const { data, error } = await supabase
+        .from("game_messages")
+        .select("*")
+        .eq("game_id", gameId)
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        console.error("Chat Fetch Error (Check Table & RLS):", error.message);
+        return;
+      }
+
+      if (data) {
+        const formattedMessages: Message[] = data.map((msg: any) => ({
+          id: msg.id,
+          sender: msg.username,
+          text: msg.message,
+          timestamp: new Date(msg.created_at).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        }));
+        setMessages(formattedMessages);
+      }
+    };
+
+    fetchChatHistory();
+
     const channel = supabase.channel(`chat_${gameId}`, {
       config: { broadcast: { self: true } },
     });
@@ -43,7 +71,10 @@ export default function LiveChat({
     channel
       .on("broadcast", { event: "chat_message" }, (payload) => {
         const incomingMsg = payload.payload as Message;
-        setMessages((prev) => [...prev, incomingMsg]);
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === incomingMsg.id)) return prev;
+          return [...prev, incomingMsg];
+        });
       })
       .subscribe();
 
@@ -55,33 +86,52 @@ export default function LiveChat({
     };
   }, [gameId]);
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  // Send Message
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !channelRef.current) return;
+    if (!newMessage.trim() || !username || !gameId) return;
 
-    const messageData: Message = {
-      id: Math.random().toString(36).substring(2, 9),
-      sender: username,
-      text: newMessage.trim(),
-      timestamp: new Date().toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-    };
-
-    // Broadcast message to everyone in the room
-    channelRef.current.send({
-      type: "broadcast",
-      event: "chat_message",
-      payload: messageData,
+    const textToSend = newMessage.trim();
+    const msgId = Math.random().toString(36).substring(2, 9);
+    const timeStr = new Date().toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
     });
 
+    const messageData: Message = {
+      id: msgId,
+      sender: username,
+      text: textToSend,
+      timestamp: timeStr,
+    };
+
     setNewMessage("");
+
+    // Broadcast Realtime (Ակնթարթային)
+    if (channelRef.current) {
+      channelRef.current.send({
+        type: "broadcast",
+        event: "chat_message",
+        payload: messageData,
+      });
+    }
+
+    // Save to DB (F5-ի համար)
+    const { error } = await supabase.from("game_messages").insert([
+      {
+        game_id: gameId,
+        username: username,
+        message: textToSend,
+      },
+    ]);
+
+    if (error) {
+      console.error("Chat Insert Error:", error.message);
+    }
   };
 
   return (
     <div className="w-full bg-slate-900/90 border border-slate-800 rounded-2xl flex flex-col h-[380px] shadow-xl overflow-hidden backdrop-blur-md">
-      {/* Header */}
       <div className="px-4 py-3 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -96,7 +146,6 @@ export default function LiveChat({
         )}
       </div>
 
-      {/* Messages Feed */}
       <div className="flex-1 p-4 overflow-y-auto space-y-3 font-sans text-xs scrollbar-thin scrollbar-thumb-slate-800">
         {messages.length === 0 ? (
           <div className="h-full flex items-center justify-center text-slate-500 text-xs italic">
@@ -140,7 +189,6 @@ export default function LiveChat({
         <div ref={chatBottomRef} />
       </div>
 
-      {/* Input Form */}
       <form
         onSubmit={handleSendMessage}
         className="p-3 bg-slate-950/80 border-t border-slate-800 flex gap-2"
