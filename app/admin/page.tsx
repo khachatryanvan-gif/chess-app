@@ -35,10 +35,10 @@ interface WithdrawalRequest {
 
 interface Game {
   id: string;
-  white_player_id: string;
+  white_player_id?: string;
   black_player_id?: string;
   bet_amount: number;
-  status: "waiting" | "in_progress" | "completed" | "draw" | "cancelled";
+  status: "waiting" | "in_progress" | "completed" | "draw" | "cancelled" | string;
   winner_id?: string;
   created_at: string;
   white_profile?: { username: string };
@@ -133,7 +133,6 @@ export default function AdminDashboard() {
 
   const fetchGames = async () => {
     try {
-      // Նախ փորձում ենք վերցնել խաղերը պարզ եղանակով, առանց խիստ ֆորին քեյեր կախվածության
       const { data, error } = await supabase
         .from("games")
         .select("*")
@@ -145,19 +144,26 @@ export default function AdminDashboard() {
       }
 
       if (data) {
-        // Լրացուցիչ քաշում ենք profiles-ները, որպեսզի անունները ճիշտ ցույց տանք
         const { data: profilesData } = await supabase.from("profiles").select("id, username");
         const profileMap = new Map();
         if (profilesData) {
           profilesData.forEach((p: any) => profileMap.set(p.id, p.username));
         }
 
-        const enrichedGames = data.map((g: any) => ({
-          ...g,
-          white_profile: { username: profileMap.get(g.white_player_id) || "Unknown" },
-          black_profile: { username: profileMap.get(g.black_player_id) || (g.status === "waiting" ? "Waiting..." : "Unknown") },
-          winner_profile: { username: profileMap.get(g.winner_id) || "" },
-        }));
+        const enrichedGames = data.map((g: any) => {
+          const whiteId = g.white_player_id || g.white_id || g.player1_id;
+          const blackId = g.black_player_id || g.black_id || g.player2_id;
+          const winnerId = g.winner_id || g.winner;
+          const betVal = g.bet_amount ?? g.bet ?? g.amount ?? 0;
+
+          return {
+            ...g,
+            bet_amount: betVal,
+            white_profile: { username: profileMap.get(whiteId) || (whiteId ? "User #" + whiteId.slice(0, 5) : "Player 1") },
+            black_profile: { username: profileMap.get(blackId) || (blackId ? "User #" + blackId.slice(0, 5) : (g.status === "waiting" ? "Waiting..." : "Player 2")) },
+            winner_profile: { username: profileMap.get(winnerId) || "" },
+          };
+        });
 
         setGames(enrichedGames);
       }
@@ -326,7 +332,7 @@ export default function AdminDashboard() {
   const pendingWithdrawalsCount = withdrawals.filter((w) => w.status === "pending").length;
 
   const filteredGames = games.filter((g) => {
-    if (gameFilter === "active") return g.status === "in_progress" || g.status === "waiting";
+    if (gameFilter === "active") return g.status === "in_progress" || g.status === "waiting" || g.status === "active";
     if (gameFilter === "completed") return g.status === "completed" || g.status === "draw";
     return true;
   });
@@ -537,7 +543,7 @@ export default function AdminDashboard() {
                 filteredGames.map((g) => (
                   <tr key={g.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition">
                     <td className="p-3 font-bold text-slate-200">
-                      {g.white_profile?.username || "Unknown"}
+                      {g.white_profile?.username || "Player 1"}
                     </td>
                     <td className="p-3 font-bold text-slate-300">
                       {g.black_profile?.username || "Waiting..."}
@@ -546,7 +552,7 @@ export default function AdminDashboard() {
                     <td className="p-3">
                       <span
                         className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                          g.status === "in_progress"
+                          g.status === "in_progress" || g.status === "active"
                             ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 animate-pulse"
                             : g.status === "completed"
                             ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
@@ -562,7 +568,7 @@ export default function AdminDashboard() {
                       {g.winner_profile?.username || (g.status === "draw" ? "Draw 🤝" : "-")}
                     </td>
                     <td className="p-3">
-                      {(g.status === "in_progress" || g.status === "waiting") && (
+                      {(g.status === "in_progress" || g.status === "waiting" || g.status === "active") && (
                         <button
                           onClick={() => handleCancelGame(g)}
                           className="px-2.5 py-1 bg-rose-500/20 border border-rose-500/40 text-rose-400 rounded-lg font-bold hover:bg-rose-500/30 transition"
