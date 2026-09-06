@@ -82,17 +82,6 @@ const calculateRemainingTime = (
   }
 };
 
-const updateRatingsInDb = async (winnerName: string, loserName: string) => {
-  try {
-    await supabase.rpc("update_player_ratings", {
-      winner_name: winnerName,
-      loser_name: loserName,
-    });
-  } catch (err) {
-    console.error("Error updating ratings via RPC:", err);
-  }
-};
-
 export default function Home() {
   const [game, setGame] = useState<Chess>(new Chess());
   const [moveList, setMoveList] = useState<string[]>([]);
@@ -100,33 +89,44 @@ export default function Home() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
 
+  // Selected Square for Click-to-Move
   const [moveFrom, setMoveFrom] = useState<string | null>(null);
+
+  // MULTI-PREMOVE STATES
   const [premoves, setPremoves] = useState<Premove[]>([]);
   const [displayFen, setDisplayFen] = useState<string>(game.fen());
   const premovesRef = useRef<Premove[]>([]);
 
+  // Sound Settings State
   const [isMuted, setIsMuted] = useState(false);
+
+  // In-Game Banner State
   const [gameBanner, setGameBanner] = useState<GameBanner | null>(null);
 
+  // Auth Form State
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [username, setUsername] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
 
+  // Modals States
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
 
+  // Game & Lobby State
   const [currentChallenge, setCurrentChallenge] = useState<Challenge | null>(null);
   const [isSpectator, setIsSpectator] = useState<boolean>(false);
   const [userOrientation, setUserOrientation] = useState<"white" | "black">("white");
   const [boardTheme, setBoardTheme] = useState<"green" | "wood" | "slate">("green");
 
+  // Timers State
   const [whiteTime, setWhiteTime] = useState<number>(180);
   const [blackTime, setBlackTime] = useState<number>(180);
   const [increment, setIncrement] = useState<number>(0);
   const [gameStatus, setGameStatus] = useState<string>("waiting");
 
+  // Offer States
   const [drawOfferedBy, setDrawOfferedBy] = useState<string | null>(null);
   const [takebackOfferedBy, setTakebackOfferedBy] = useState<string | null>(null);
 
@@ -197,6 +197,7 @@ export default function Home() {
     }
   }, [profile?.id, fetchProfile, clearPremoves]);
 
+  // CHECK ACTIVE GAME (Ֆիլտրում ենք ՄԻԱՅՆ 'waiting' և 'live' status-ով խաղերը)
   const checkForActiveGame = useCallback(async (username: string) => {
     const { data: activeGame, error } = await supabase
       .from("games")
@@ -330,23 +331,12 @@ export default function Home() {
     resetToLobby();
   };
 
+  // TIMEOUT END GAME
   const handleTimeout = useCallback(
     async (timedOutColor: "w" | "b") => {
       if (gameStatus !== "live" || !currentChallenge?.id) return;
 
       const winner = timedOutColor === "w" ? "Black" : "White";
-      
-      const { data: gameData } = await supabase
-        .from("games")
-        .select("white_player, black_player")
-        .eq("id", currentChallenge.id)
-        .single();
-
-      if (gameData && gameData.white_player && gameData.black_player) {
-        const winnerName = winner === "White" ? gameData.white_player : gameData.black_player;
-        const loserName = winner === "White" ? gameData.black_player : gameData.white_player;
-        await updateRatingsInDb(winnerName, loserName);
-      }
 
       if (channelRef.current) {
         channelRef.current.send({
@@ -402,6 +392,7 @@ export default function Home() {
     ]
   );
 
+  // MAKE A MOVE (CHECKMATE / GAME OVER DIRECT UPDATE)
   const makeAMove = useCallback(
     async (move: any): Promise<boolean> => {
       try {
@@ -444,20 +435,6 @@ export default function Home() {
             let winnerStr = "Draw";
             if (gameCopy.isCheckmate()) {
               winnerStr = currentTurn === "w" ? "White" : "Black";
-            }
-
-            if (winnerStr !== "Draw") {
-              const { data: gameData } = await supabase
-                .from("games")
-                .select("white_player, black_player")
-                .eq("id", currentChallenge.id)
-                .single();
-
-              if (gameData && gameData.white_player && gameData.black_player) {
-                const winnerName = winnerStr === "White" ? gameData.white_player : gameData.black_player;
-                const loserName = winnerStr === "White" ? gameData.black_player : gameData.white_player;
-                await updateRatingsInDb(winnerName, loserName);
-              }
             }
 
             const isWinner =
@@ -756,6 +733,7 @@ export default function Home() {
     isMuted,
   ]);
 
+  // TIMER EFFECT
   useEffect(() => {
     if (gameStatus !== "live" || game.isGameOver() || moveList.length === 0) return;
 
@@ -785,6 +763,7 @@ export default function Home() {
     return () => clearInterval(timer);
   }, [gameStatus, game, moveList.length, handleTimeout]);
 
+  // HANDLE LEAVE / RESIGN GAME
   const handleLeaveGame = async () => {
     if (!currentChallenge?.id || isSpectator) {
       resetToLobby();
@@ -807,15 +786,11 @@ export default function Home() {
         .single();
 
       let winnerName = "Opponent";
-      if (currentGame && currentGame.white_player && currentGame.black_player) {
+      if (currentGame) {
         winnerName =
           currentGame.white_player === profile?.username
             ? "Black"
             : "White";
-
-        const winPlayer = winnerName === "White" ? currentGame.white_player : currentGame.black_player;
-        const losePlayer = winnerName === "White" ? currentGame.black_player : currentGame.white_player;
-        await updateRatingsInDb(winPlayer, losePlayer);
       }
 
       if (channelRef.current) {
@@ -1457,6 +1432,7 @@ export default function Home() {
                 </button>
               </div>
 
+              {/* USER PROFILE INFO */}
               <div className="bg-slate-900/80 backdrop-blur-md border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-mono text-slate-200 flex items-center gap-2">
                 <div className="w-5 h-5 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center overflow-hidden shrink-0">
                   {profile.avatar_url ? (
@@ -1471,6 +1447,7 @@ export default function Home() {
                 </span>
               </div>
 
+              {/* SETTINGS BUTTON */}
               <button
                 onClick={() => setShowProfileModal(true)}
                 className="p-2 bg-slate-900/80 border border-slate-800 hover:bg-slate-800 text-slate-300 rounded-xl text-xs font-bold transition cursor-pointer backdrop-blur-md"
@@ -1509,6 +1486,7 @@ export default function Home() {
       ) : (
         <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <div className="lg:col-span-7 flex flex-col items-center gap-4">
+            {/* Top Match Info Bar */}
             <div className="w-full bg-slate-900/80 p-4 rounded-xl border border-slate-800 flex justify-between items-center text-sm font-semibold backdrop-blur-md">
               <div className="flex items-center gap-2">
                 <span className="text-slate-400">Creator: </span>
@@ -1537,6 +1515,7 @@ export default function Home() {
               </div>
             </div>
 
+            {/* Chess Clock */}
             <ChessClock
               whiteTime={whiteTime}
               blackTime={blackTime}
@@ -1544,6 +1523,7 @@ export default function Home() {
               isGameActive={gameStatus === "live"}
             />
 
+            {/* Interactive Control Buttons */}
             <div className="w-full flex gap-2 justify-between max-w-[500px]">
               {!isSpectator && gameStatus === "live" && (
                 <>
@@ -1583,6 +1563,7 @@ export default function Home() {
               </button>
             </div>
 
+            {/* Chessboard */}
             <div className="w-full max-w-[500px] aspect-square rounded-2xl overflow-hidden shadow-2xl border border-slate-800">
               <Chessboard
                 position={displayFen}
@@ -1592,14 +1573,16 @@ export default function Home() {
                 boardOrientation={userOrientation}
                 customDarkSquareStyle={{ backgroundColor: activeTheme.dark }}
                 customLightSquareStyle={{ backgroundColor: activeTheme.light }}
-                customBoardStyle={{ cursor: "grab" }}
+                customBoardStyle={{ cursor: "default" }}
                 customSquareStyles={getCustomSquareStyles()}
                 animationDuration={150}
                 arePiecesDraggable={true}
               />
             </div>
 
+            {/* ALL NOTIFICATIONS & OFFERS */}
             <div className="w-full max-w-[500px] flex flex-col gap-2">
+              {/* Draw Offer */}
               {drawOfferedBy && drawOfferedBy !== profile?.username && (
                 <div className="bg-amber-500/20 backdrop-blur-md border border-amber-500/40 p-3 rounded-xl flex items-center justify-between text-xs text-amber-300">
                   <span>🤝 {drawOfferedBy} offers a draw. Accept?</span>
@@ -1620,6 +1603,7 @@ export default function Home() {
                 </div>
               )}
 
+              {/* Takeback Offer */}
               {takebackOfferedBy && takebackOfferedBy !== profile?.username && (
                 <div className="bg-amber-500/20 backdrop-blur-md border border-amber-500/40 p-3 rounded-xl flex items-center justify-between text-xs text-amber-300">
                   <span>↩️ {takebackOfferedBy} requests a takeback. Accept?</span>
@@ -1640,6 +1624,7 @@ export default function Home() {
                 </div>
               )}
 
+              {/* Status Game Banner */}
               {gameBanner && (
                 <div
                   className={`w-full p-3 rounded-xl border text-center text-xs font-bold backdrop-blur-md transition-all ${
@@ -1669,6 +1654,7 @@ export default function Home() {
         </div>
       )}
 
+      {/* MODALS RENDER */}
       {showDepositModal && (
         <DepositModal
           userId={profile?.id}
