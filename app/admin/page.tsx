@@ -132,18 +132,37 @@ export default function AdminDashboard() {
   };
 
   const fetchGames = async () => {
-    const { data } = await supabase
-      .from("games")
-      .select(`
-        *,
-        white_profile:profiles!white_player_id(username),
-        black_profile:profiles!black_player_id(username),
-        winner_profile:profiles!winner_id(username)
-      `)
-      .order("created_at", { ascending: false });
+    try {
+      // Նախ փորձում ենք վերցնել խաղերը պարզ եղանակով, առանց խիստ ֆորին քեյեր կախվածության
+      const { data, error } = await supabase
+        .from("games")
+        .select("*")
+        .order("created_at", { ascending: false });
 
-    if (data) {
-      setGames(data as any);
+      if (error) {
+        console.error("Error fetching games:", error.message);
+        return;
+      }
+
+      if (data) {
+        // Լրացուցիչ քաշում ենք profiles-ները, որպեսզի անունները ճիշտ ցույց տանք
+        const { data: profilesData } = await supabase.from("profiles").select("id, username");
+        const profileMap = new Map();
+        if (profilesData) {
+          profilesData.forEach((p: any) => profileMap.set(p.id, p.username));
+        }
+
+        const enrichedGames = data.map((g: any) => ({
+          ...g,
+          white_profile: { username: profileMap.get(g.white_player_id) || "Unknown" },
+          black_profile: { username: profileMap.get(g.black_player_id) || (g.status === "waiting" ? "Waiting..." : "Unknown") },
+          winner_profile: { username: profileMap.get(g.winner_id) || "" },
+        }));
+
+        setGames(enrichedGames);
+      }
+    } catch (err) {
+      console.error("Unexpected error in fetchGames:", err);
     }
   };
 
@@ -163,7 +182,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // Change User Role (user <-> admin)
   const handleToggleRole = async (targetUser: UserProfile) => {
     const newRole = targetUser.role === "admin" ? "user" : "admin";
     if (!confirm(`Are you sure you want to change ${targetUser.username}'s role to ${newRole}?`)) return;
@@ -181,7 +199,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // Block / Unblock User
   const handleToggleBlock = async (targetUser: UserProfile) => {
     const nextStatus = !targetUser.is_blocked;
     const actionName = nextStatus ? "block" : "unblock";
@@ -200,7 +217,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // Delete User Profile
   const handleDeleteUser = async (targetUser: UserProfile) => {
     if (!confirm(`⚠️ DANGER: Are you sure you want to delete profile for ${targetUser.username}? This cannot be undone.`)) return;
 
@@ -217,7 +233,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // Update Balance and Rating
   const handleSaveUserDetails = async (userId: string) => {
     const { error } = await supabase
       .from("profiles")
@@ -515,7 +530,7 @@ export default function AdminDashboard() {
               {filteredGames.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="p-4 text-center text-slate-500">
-                    No games found for this filter.
+                    No games found in the database.
                   </td>
                 </tr>
               ) : (
