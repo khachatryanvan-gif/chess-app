@@ -82,7 +82,6 @@ const calculateRemainingTime = (
   }
 };
 
-// Ratings update using secure RPC function to bypass RLS
 const updateRatingsInDb = async (winnerName: string, loserName: string) => {
   try {
     await supabase.rpc("update_player_ratings", {
@@ -1586,22 +1585,18 @@ export default function Home() {
 
             <div className="w-full max-w-[500px] aspect-square rounded-2xl overflow-hidden shadow-2xl border border-slate-800">
               <Chessboard
-  position={displayFen}
-  onPieceDrop={onDrop}
-  onSquareClick={onSquareClick}
-  onSquareRightClick={handleSquareRightClick}
-  boardOrientation={userOrientation}
-  customDarkSquareStyle={{ backgroundColor: activeTheme.dark }}
-  customLightSquareStyle={{ backgroundColor: activeTheme.light }}
-  customBoardStyle={{ 
-    cursor: "grab", 
-    borderRadius: "4px", 
-    boxShadow: "0 5px 15px rgba(0, 0, 0, 0.5)" 
-  }}
-  customSquareStyles={getCustomSquareStyles()}
-  animationDuration={150}
-  arePiecesDraggable={true}
-/>
+                position={displayFen}
+                onPieceDrop={onDrop}
+                onSquareClick={onSquareClick}
+                onSquareRightClick={handleSquareRightClick}
+                boardOrientation={userOrientation}
+                customDarkSquareStyle={{ backgroundColor: activeTheme.dark }}
+                customLightSquareStyle={{ backgroundColor: activeTheme.light }}
+                customBoardStyle={{ cursor: "grab" }}
+                customSquareStyles={getCustomSquareStyles()}
+                animationDuration={150}
+                arePiecesDraggable={true}
+              />
             </div>
 
             <div className="w-full max-w-[500px] flex flex-col gap-2">

@@ -17,3 +17,10 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+/* Վերացնում է ձեռքի նշանը խաղատախտակի վրա սեղմելիս */
+.react-chessboard-board *, div[data-piece] {
+  cursor: grab !important;
+}
+.react-chessboard-board *:active, div[data-piece]:active {
+  cursor: grabbing !important;
+}
