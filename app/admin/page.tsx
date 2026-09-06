@@ -19,6 +19,32 @@ interface AnnouncementSettings {
   type: "info" | "warning" | "success" | "danger";
 }
 
+interface WithdrawalRequest {
+  id: string;
+  user_id: string;
+  amount: number;
+  wallet_address: string;
+  status: "pending" | "approved" | "rejected";
+  created_at: string;
+  profiles?: {
+    username: string;
+    balance: number;
+  };
+}
+
+interface Game {
+  id: string;
+  white_player_id: string;
+  black_player_id?: string;
+  bet_amount: number;
+  status: "waiting" | "in_progress" | "completed" | "draw" | "cancelled";
+  winner_id?: string;
+  created_at: string;
+  white_profile?: { username: string };
+  black_profile?: { username: string };
+  winner_profile?: { username: string };
+}
+
 export default function AdminDashboard() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,6 +59,14 @@ export default function AdminDashboard() {
     type: "info",
   });
   const [savingAnnouncement, setSavingAnnouncement] = useState(false);
+
+  // Withdrawals State
+  const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>([]);
+  const [processingId, setProcessingId] = useState<string | null>(null);
+
+  // Games State
+  const [games, setGames] = useState<Game[]>([]);
+  const [gameFilter, setGameFilter] = useState<"all" | "active" | "completed">("all");
 
   useEffect(() => {
     const checkAdminAndFetch = async () => {
@@ -53,6 +87,8 @@ export default function AdminDashboard() {
         if (data.role === "admin") {
           fetchUsers();
           fetchAnnouncement();
+          fetchWithdrawals();
+          fetchGames();
         }
       }
       setLoading(false);
@@ -79,6 +115,33 @@ export default function AdminDashboard() {
 
     if (data?.value) {
       setAnnouncement(data.value as AnnouncementSettings);
+    }
+  };
+
+  const fetchWithdrawals = async () => {
+    const { data } = await supabase
+      .from("withdrawals")
+      .select("*, profiles(username, balance)")
+      .order("created_at", { ascending: false });
+
+    if (data) {
+      setWithdrawals(data as any);
+    }
+  };
+
+  const fetchGames = async () => {
+    const { data } = await supabase
+      .from("games")
+      .select(`
+        *,
+        white_profile:profiles!white_player_id(username),
+        black_profile:profiles!black_player_id(username),
+        winner_profile:profiles!winner_id(username)
+      `)
+      .order("created_at", { ascending: false });
+
+    if (data) {
+      setGames(data as any);
     }
   };
 
@@ -113,6 +176,59 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleProcessWithdrawal = async (
+    request: WithdrawalRequest,
+    newStatus: "approved" | "rejected"
+  ) => {
+    setProcessingId(request.id);
+
+    try {
+      const { error: updateError } = await supabase
+        .from("withdrawals")
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .eq("id", request.id);
+
+      if (updateError) throw updateError;
+
+      if (newStatus === "rejected") {
+        const currentBalance = request.profiles?.balance ?? 0;
+        const { error: refundError } = await supabase
+          .from("profiles")
+          .update({ balance: currentBalance + request.amount })
+          .eq("id", request.user_id);
+
+        if (refundError) throw refundError;
+      }
+
+      alert(`Withdrawal request ${newStatus}!`);
+      fetchWithdrawals();
+      fetchUsers();
+    } catch (err: any) {
+      alert("Error processing withdrawal: " + err.message);
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  // Cancel / Abort Game Action
+  const handleCancelGame = async (game: Game) => {
+    if (!confirm("Are you sure you want to cancel this game and refund players?")) return;
+
+    try {
+      const { error } = await supabase
+        .from("games")
+        .update({ status: "cancelled" })
+        .eq("id", game.id);
+
+      if (error) throw error;
+
+      alert("Game cancelled successfully!");
+      fetchGames();
+    } catch (err: any) {
+      alert("Error cancelling game: " + err.message);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center font-mono">
@@ -133,6 +249,14 @@ export default function AdminDashboard() {
     );
   }
 
+  const pendingWithdrawalsCount = withdrawals.filter((w) => w.status === "pending").length;
+
+  const filteredGames = games.filter((g) => {
+    if (gameFilter === "active") return g.status === "in_progress" || g.status === "waiting";
+    if (gameFilter === "completed") return g.status === "completed" || g.status === "draw";
+    return true;
+  });
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6 md:p-12 font-mono">
       <header className="flex justify-between items-center pb-6 mb-8 border-b border-slate-800">
@@ -145,8 +269,9 @@ export default function AdminDashboard() {
         </Link>
       </header>
 
+      {/* Top Grid: Banner & Withdrawals */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-        {/* Banner/Announcement Management Section */}
+        {/* Banner/Announcement Management */}
         <section className="lg:col-span-1 bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between">
           <div>
             <h2 className="text-lg font-bold text-slate-200 mb-4 flex items-center gap-2">
@@ -181,30 +306,12 @@ export default function AdminDashboard() {
               <div>
                 <label className="block text-xs font-bold text-slate-400 mb-1">Banner Text / Message</label>
                 <textarea
-                  rows={4}
+                  rows={3}
                   value={announcement.message}
                   onChange={(e) => setAnnouncement({ ...announcement, message: e.target.value })}
                   placeholder="Enter banner message..."
                   className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs p-3 rounded-xl focus:outline-none focus:border-emerald-500"
                 />
-              </div>
-
-              {/* Preview */}
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Live Preview</label>
-                <div
-                  className={`p-3 rounded-xl text-xs font-medium border ${
-                    announcement.type === "info"
-                      ? "bg-blue-500/10 border-blue-500/30 text-blue-400"
-                      : announcement.type === "success"
-                      ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                      : announcement.type === "warning"
-                      ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
-                      : "bg-rose-500/10 border-rose-500/30 text-rose-400"
-                  }`}
-                >
-                  {announcement.message || "Banner message will appear here..."}
-                </div>
               </div>
             </div>
           </div>
@@ -218,55 +325,234 @@ export default function AdminDashboard() {
           </button>
         </section>
 
-        {/* User Management Section */}
+        {/* Withdrawal Requests Section */}
         <section className="lg:col-span-2 bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl">
           <h2 className="text-lg font-bold text-slate-200 mb-4 flex items-center gap-2">
-            <span>👥 User Management</span>
-            <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2.5 py-0.5 rounded-full border border-emerald-500/30">
-              {users.length} Users
-            </span>
+            <span>💸 Withdrawal Requests</span>
+            {pendingWithdrawalsCount > 0 && (
+              <span className="text-xs bg-amber-500/20 text-amber-400 px-2.5 py-0.5 rounded-full border border-amber-500/30 animate-pulse">
+                {pendingWithdrawalsCount} Pending
+              </span>
+            )}
           </h2>
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto max-h-[320px]">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="border-b border-slate-800 text-slate-400 uppercase">
-                  <th className="p-3">Username</th>
-                  <th className="p-3">Role</th>
-                  <th className="p-3">Rating</th>
-                  <th className="p-3">Balance (USDT)</th>
+                <tr className="border-b border-slate-800 text-slate-400 uppercase sticky top-0 bg-slate-900">
+                  <th className="p-3">User</th>
+                  <th className="p-3">Amount</th>
+                  <th className="p-3">Wallet Address</th>
+                  <th className="p-3">Status</th>
                   <th className="p-3">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {users.map((u) => (
-                  <tr key={u.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition">
-                    <td className="p-3 font-bold text-slate-200">{u.username}</td>
-                    <td className="p-3">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${u.role === 'admin' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-slate-800 text-slate-400'}`}>
-                        {u.role || 'user'}
-                      </span>
-                    </td>
-                    <td className="p-3 text-amber-400 font-bold">⭐ {u.rating ?? 1500}</td>
-                    <td className="p-3 text-emerald-400 font-bold">{u.balance} USDT</td>
-                    <td className="p-3">
-                      <button
-                        onClick={() => {
-                          setEditingUser(u);
-                          setNewBalance(u.balance);
-                        }}
-                        className="px-3 py-1 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 rounded-lg font-bold hover:bg-emerald-500/30 transition"
-                      >
-                        Edit
-                      </button>
+                {withdrawals.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="p-4 text-center text-slate-500">
+                      No withdrawal requests found.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  withdrawals.map((w) => (
+                    <tr key={w.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition">
+                      <td className="p-3 font-bold text-slate-200">
+                        {w.profiles?.username || "Unknown"}
+                      </td>
+                      <td className="p-3 text-amber-400 font-bold">{w.amount} USDT</td>
+                      <td className="p-3 font-mono text-[11px] text-slate-400 select-all">
+                        {w.wallet_address}
+                      </td>
+                      <td className="p-3">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                            w.status === "approved"
+                              ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                              : w.status === "rejected"
+                              ? "bg-rose-500/20 text-rose-400 border border-rose-500/30"
+                              : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                          }`}
+                        >
+                          {w.status}
+                        </span>
+                      </td>
+                      <td className="p-3">
+                        {w.status === "pending" ? (
+                          <div className="flex gap-2">
+                            <button
+                              disabled={processingId === w.id}
+                              onClick={() => handleProcessWithdrawal(w, "approved")}
+                              className="px-2.5 py-1 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 rounded-lg font-bold hover:bg-emerald-500/30 transition disabled:opacity-50"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              disabled={processingId === w.id}
+                              onClick={() => handleProcessWithdrawal(w, "rejected")}
+                              className="px-2.5 py-1 bg-rose-500/20 border border-rose-500/40 text-rose-400 rounded-lg font-bold hover:bg-rose-500/30 transition disabled:opacity-50"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-slate-500">Processed</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
         </section>
       </div>
+
+      {/* Middle Section: Games Monitoring */}
+      <section className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl mb-8">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+          <h2 className="text-lg font-bold text-slate-200 flex items-center gap-2">
+            <span>♟️ Games Monitoring</span>
+            <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2.5 py-0.5 rounded-full border border-emerald-500/30">
+              {games.length} Total
+            </span>
+          </h2>
+
+          <div className="flex gap-2 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+            <button
+              onClick={() => setGameFilter("all")}
+              className={`px-3 py-1 rounded-lg font-bold transition ${gameFilter === "all" ? "bg-slate-800 text-emerald-400" : "text-slate-400"}`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setGameFilter("active")}
+              className={`px-3 py-1 rounded-lg font-bold transition ${gameFilter === "active" ? "bg-slate-800 text-emerald-400" : "text-slate-400"}`}
+            >
+              Active
+            </button>
+            <button
+              onClick={() => setGameFilter("completed")}
+              className={`px-3 py-1 rounded-lg font-bold transition ${gameFilter === "completed" ? "bg-slate-800 text-emerald-400" : "text-slate-400"}`}
+            >
+              Completed
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto max-h-[350px]">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="border-b border-slate-800 text-slate-400 uppercase sticky top-0 bg-slate-900">
+                <th className="p-3">White ⚪</th>
+                <th className="p-3">Black 👤</th>
+                <th className="p-3">Bet (USDT)</th>
+                <th className="p-3">Status</th>
+                <th className="p-3">Winner</th>
+                <th className="p-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredGames.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="p-4 text-center text-slate-500">
+                    No games found for this filter.
+                  </td>
+                </tr>
+              ) : (
+                filteredGames.map((g) => (
+                  <tr key={g.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition">
+                    <td className="p-3 font-bold text-slate-200">
+                      {g.white_profile?.username || "Unknown"}
+                    </td>
+                    <td className="p-3 font-bold text-slate-300">
+                      {g.black_profile?.username || "Waiting..."}
+                    </td>
+                    <td className="p-3 text-emerald-400 font-bold">{g.bet_amount} USDT</td>
+                    <td className="p-3">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                          g.status === "in_progress"
+                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 animate-pulse"
+                            : g.status === "completed"
+                            ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                            : g.status === "cancelled"
+                            ? "bg-rose-500/20 text-rose-400 border border-rose-500/30"
+                            : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                        }`}
+                      >
+                        {g.status}
+                      </span>
+                    </td>
+                    <td className="p-3 font-bold text-amber-400">
+                      {g.winner_profile?.username || (g.status === "draw" ? "Draw 🤝" : "-")}
+                    </td>
+                    <td className="p-3">
+                      {(g.status === "in_progress" || g.status === "waiting") && (
+                        <button
+                          onClick={() => handleCancelGame(g)}
+                          className="px-2.5 py-1 bg-rose-500/20 border border-rose-500/40 text-rose-400 rounded-lg font-bold hover:bg-rose-500/30 transition"
+                        >
+                          Cancel Game
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* Bottom Section: User Management */}
+      <section className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl">
+        <h2 className="text-lg font-bold text-slate-200 mb-4 flex items-center gap-2">
+          <span>👥 User Management</span>
+          <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2.5 py-0.5 rounded-full border border-emerald-500/30">
+            {users.length} Users
+          </span>
+        </h2>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="border-b border-slate-800 text-slate-400 uppercase">
+                <th className="p-3">Username</th>
+                <th className="p-3">Role</th>
+                <th className="p-3">Rating</th>
+                <th className="p-3">Balance (USDT)</th>
+                <th className="p-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition">
+                  <td className="p-3 font-bold text-slate-200">{u.username}</td>
+                  <td className="p-3">
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${u.role === 'admin' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-slate-800 text-slate-400'}`}>
+                      {u.role || 'user'}
+                    </span>
+                  </td>
+                  <td className="p-3 text-amber-400 font-bold">⭐ {u.rating ?? 1500}</td>
+                  <td className="p-3 text-emerald-400 font-bold">{u.balance} USDT</td>
+                  <td className="p-3">
+                    <button
+                      onClick={() => {
+                        setEditingUser(u);
+                        setNewBalance(u.balance);
+                      }}
+                      className="px-3 py-1 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 rounded-lg font-bold hover:bg-emerald-500/30 transition"
+                    >
+                      Edit
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       {/* Edit Balance Modal */}
       {editingUser && (
