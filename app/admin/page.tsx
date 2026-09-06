@@ -11,6 +11,7 @@ interface UserProfile {
   balance: number;
   rating?: number;
   email?: string;
+  is_blocked?: boolean;
 }
 
 interface AnnouncementSettings {
@@ -51,6 +52,7 @@ export default function AdminDashboard() {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [newBalance, setNewBalance] = useState<number>(0);
+  const [newRating, setNewRating] = useState<number>(1500);
 
   // Announcement State
   const [announcement, setAnnouncement] = useState<AnnouncementSettings>({
@@ -161,18 +163,76 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleUpdateBalance = async (userId: string) => {
+  // Change User Role (user <-> admin)
+  const handleToggleRole = async (targetUser: UserProfile) => {
+    const newRole = targetUser.role === "admin" ? "user" : "admin";
+    if (!confirm(`Are you sure you want to change ${targetUser.username}'s role to ${newRole}?`)) return;
+
     const { error } = await supabase
       .from("profiles")
-      .update({ balance: newBalance })
+      .update({ role: newRole })
+      .eq("id", targetUser.id);
+
+    if (!error) {
+      alert(`Role changed to ${newRole}!`);
+      fetchUsers();
+    } else {
+      alert("Error changing role: " + error.message);
+    }
+  };
+
+  // Block / Unblock User
+  const handleToggleBlock = async (targetUser: UserProfile) => {
+    const nextStatus = !targetUser.is_blocked;
+    const actionName = nextStatus ? "block" : "unblock";
+    if (!confirm(`Are you sure you want to ${actionName} ${targetUser.username}?`)) return;
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({ is_blocked: nextStatus })
+      .eq("id", targetUser.id);
+
+    if (!error) {
+      alert(`User ${actionName}ed successfully!`);
+      fetchUsers();
+    } else {
+      alert(`Error trying to ${actionName} user: ` + error.message);
+    }
+  };
+
+  // Delete User Profile
+  const handleDeleteUser = async (targetUser: UserProfile) => {
+    if (!confirm(`⚠️ DANGER: Are you sure you want to delete profile for ${targetUser.username}? This cannot be undone.`)) return;
+
+    const { error } = await supabase
+      .from("profiles")
+      .delete()
+      .eq("id", targetUser.id);
+
+    if (!error) {
+      alert("User profile deleted!");
+      fetchUsers();
+    } else {
+      alert("Error deleting user: " + error.message);
+    }
+  };
+
+  // Update Balance and Rating
+  const handleSaveUserDetails = async (userId: string) => {
+    const { error } = await supabase
+      .from("profiles")
+      .update({ 
+        balance: newBalance,
+        rating: newRating
+      })
       .eq("id", userId);
 
     if (!error) {
-      alert("Balance updated successfully!");
+      alert("User details updated successfully!");
       setEditingUser(null);
       fetchUsers();
     } else {
-      alert("Error updating balance: " + error.message);
+      alert("Error updating user details: " + error.message);
     }
   };
 
@@ -210,9 +270,8 @@ export default function AdminDashboard() {
     }
   };
 
-  // Cancel / Abort Game Action
   const handleCancelGame = async (game: Game) => {
-    if (!confirm("Are you sure you want to cancel this game and refund players?")) return;
+    if (!confirm("Are you sure you want to cancel this game?")) return;
 
     try {
       const { error } = await supabase
@@ -408,7 +467,7 @@ export default function AdminDashboard() {
         </section>
       </div>
 
-      {/* Middle Section: Games Monitoring */}
+      {/* Games Monitoring */}
       <section className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl mb-8">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
           <h2 className="text-lg font-bold text-slate-200 flex items-center gap-2">
@@ -505,10 +564,10 @@ export default function AdminDashboard() {
         </div>
       </section>
 
-      {/* Bottom Section: User Management */}
+      {/* User Management Section */}
       <section className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl">
         <h2 className="text-lg font-bold text-slate-200 mb-4 flex items-center gap-2">
-          <span>👥 User Management</span>
+          <span>👥 Advanced User Management</span>
           <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2.5 py-0.5 rounded-full border border-emerald-500/30">
             {users.length} Users
           </span>
@@ -520,8 +579,9 @@ export default function AdminDashboard() {
               <tr className="border-b border-slate-800 text-slate-400 uppercase">
                 <th className="p-3">Username</th>
                 <th className="p-3">Role</th>
+                <th className="p-3">Status</th>
                 <th className="p-3">Rating</th>
-                <th className="p-3">Balance (USDT)</th>
+                <th className="p-3">Balance</th>
                 <th className="p-3">Actions</th>
               </tr>
             </thead>
@@ -530,22 +590,60 @@ export default function AdminDashboard() {
                 <tr key={u.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition">
                   <td className="p-3 font-bold text-slate-200">{u.username}</td>
                   <td className="p-3">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${u.role === 'admin' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-slate-800 text-slate-400'}`}>
-                      {u.role || 'user'}
+                    <button
+                      onClick={() => handleToggleRole(u)}
+                      title="Click to toggle role"
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase cursor-pointer hover:opacity-80 transition ${
+                        u.role === "admin"
+                          ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                          : "bg-slate-800 text-slate-400 border border-slate-700"
+                      }`}
+                    >
+                      {u.role || "user"} 🔄
+                    </button>
+                  </td>
+                  <td className="p-3">
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                        u.is_blocked
+                          ? "bg-rose-500/20 text-rose-400 border border-rose-500/30"
+                          : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                      }`}
+                    >
+                      {u.is_blocked ? "Blocked 🚫" : "Active ✅"}
                     </span>
                   </td>
                   <td className="p-3 text-amber-400 font-bold">⭐ {u.rating ?? 1500}</td>
                   <td className="p-3 text-emerald-400 font-bold">{u.balance} USDT</td>
                   <td className="p-3">
-                    <button
-                      onClick={() => {
-                        setEditingUser(u);
-                        setNewBalance(u.balance);
-                      }}
-                      className="px-3 py-1 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 rounded-lg font-bold hover:bg-emerald-500/30 transition"
-                    >
-                      Edit
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          setEditingUser(u);
+                          setNewBalance(u.balance);
+                          setNewRating(u.rating ?? 1500);
+                        }}
+                        className="px-2.5 py-1 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 rounded-lg font-bold hover:bg-emerald-500/30 transition"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleToggleBlock(u)}
+                        className={`px-2.5 py-1 border rounded-lg font-bold transition ${
+                          u.is_blocked
+                            ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/30"
+                            : "bg-amber-500/20 border-amber-500/40 text-amber-400 hover:bg-amber-500/30"
+                        }`}
+                      >
+                        {u.is_blocked ? "Unblock" : "Block"}
+                      </button>
+                      <button
+                        onClick={() => handleDeleteUser(u)}
+                        className="px-2.5 py-1 bg-rose-500/20 border border-rose-500/40 text-rose-400 rounded-lg font-bold hover:bg-rose-500/30 transition"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -554,19 +652,33 @@ export default function AdminDashboard() {
         </div>
       </section>
 
-      {/* Edit Balance Modal */}
+      {/* Edit User Modal */}
       {editingUser && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl w-full max-w-md shadow-2xl">
-            <h3 className="text-base font-bold text-slate-100 mb-2">Edit Balance for {editingUser.username}</h3>
-            <p className="text-xs text-slate-400 mb-4">Current Balance: {editingUser.balance} USDT</p>
+            <h3 className="text-base font-bold text-slate-100 mb-4">Edit Profile: {editingUser.username}</h3>
 
-            <input
-              type="number"
-              value={newBalance}
-              onChange={(e) => setNewBalance(Number(e.target.value))}
-              className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 text-sm mb-4 focus:outline-none focus:border-emerald-500"
-            />
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1">Balance (USDT)</label>
+                <input
+                  type="number"
+                  value={newBalance}
+                  onChange={(e) => setNewBalance(Number(e.target.value))}
+                  className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 text-sm focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1">Chess Rating (Elo)</label>
+                <input
+                  type="number"
+                  value={newRating}
+                  onChange={(e) => setNewRating(Number(e.target.value))}
+                  className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 text-sm focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+            </div>
 
             <div className="flex justify-end gap-3">
               <button
@@ -576,10 +688,10 @@ export default function AdminDashboard() {
                 Cancel
               </button>
               <button
-                onClick={() => handleUpdateBalance(editingUser.id)}
+                onClick={() => handleSaveUserDetails(editingUser.id)}
                 className="px-4 py-2 bg-emerald-500 text-slate-950 text-xs font-bold rounded-xl hover:bg-emerald-400 transition"
               >
-                Save
+                Save Changes
               </button>
             </div>
           </div>
