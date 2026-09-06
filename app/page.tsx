@@ -3,16 +3,14 @@
 import LiveChat from "@/components/LiveChat";
 import { useState, useEffect, useRef, useCallback } from "react";
 import dynamic from "next/dynamic";
-import { Chess, Square } from "chess.js";
+import { Chess } from "chess.js";
 import { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import Lobby, { Challenge } from "@/components/Lobby";
 import ChessClock from "@/components/ChessClock";
 import MoveHistory from "@/components/MoveHistory";
 import DepositModal from "@/components/DepositModal";
-import ProfileSettingsModal from "@/components/ProfileSettingsModal";
 import { soundManager } from "@/lib/sounds";
-import Link from "next/link";
 
 const Chessboard = dynamic(
   () => import("react-chessboard").then((mod) => mod.Chessboard),
@@ -30,19 +28,11 @@ interface UserProfile {
   username: string;
   role: string;
   balance: number;
-  rating?: number;
-  avatar_url?: string;
-  email?: string;
 }
 
 interface GameBanner {
   type: "info" | "success" | "warning";
   message: string;
-}
-
-interface Premove {
-  from: string;
-  to: string;
 }
 
 const parseTimeControl = (tc: string) => {
@@ -89,47 +79,44 @@ export default function Home() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
 
-  const [moveFrom, setMoveFrom] = useState<string | null>(null);
-
-  const [premoves, setPremoves] = useState<Premove[]>([]);
-  const [displayFen, setDisplayFen] = useState<string>(game.fen());
-  const premovesRef = useRef<Premove[]>([]);
-
+  // Sound Settings State
   const [isMuted, setIsMuted] = useState(false);
+
+  // In-Game Banner State
   const [gameBanner, setGameBanner] = useState<GameBanner | null>(null);
 
+  // Auth Form State
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [username, setUsername] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
 
+  // Deposit Modal State
   const [showDepositModal, setShowDepositModal] = useState(false);
-  const [showProfileModal, setShowProfileModal] = useState(false);
 
+  // Game & Lobby State
   const [currentChallenge, setCurrentChallenge] = useState<Challenge | null>(null);
   const [isSpectator, setIsSpectator] = useState<boolean>(false);
   const [userOrientation, setUserOrientation] = useState<"white" | "black">("white");
   const [boardTheme, setBoardTheme] = useState<"green" | "wood" | "slate">("green");
 
+  // Timers State
   const [whiteTime, setWhiteTime] = useState<number>(180);
   const [blackTime, setBlackTime] = useState<number>(180);
   const [increment, setIncrement] = useState<number>(0);
   const [gameStatus, setGameStatus] = useState<string>("waiting");
 
+  // Offer States
   const [drawOfferedBy, setDrawOfferedBy] = useState<string | null>(null);
   const [takebackOfferedBy, setTakebackOfferedBy] = useState<string | null>(null);
 
   const channelRef = useRef<RealtimeChannel | null>(null);
 
-  const clearPremoves = useCallback(() => {
-    premovesRef.current = [];
-    setPremoves([]);
-  }, []);
-
+  // Unlock Web Audio API context on first user interaction
   useEffect(() => {
     const unlockAudio = () => {
-      soundManager.play("move", true);
+      soundManager.play("move", true); // play muted to unblock audio context
       window.removeEventListener("click", unlockAudio);
       window.removeEventListener("keydown", unlockAudio);
     };
@@ -143,6 +130,7 @@ export default function Home() {
     };
   }, []);
 
+  // Dynamic Confetti Trigger
   const triggerConfetti = useCallback(async () => {
     try {
       const confetti = (await import("canvas-confetti")).default;
@@ -157,6 +145,7 @@ export default function Home() {
     }
   }, []);
 
+  // Fetch Profile
   const fetchProfile = useCallback(async (userId: string) => {
     const { data } = await supabase
       .from("profiles")
@@ -169,24 +158,23 @@ export default function Home() {
     }
   }, []);
 
+  // Reset function
   const resetToLobby = useCallback(() => {
     setActiveTab("lobby");
     setCurrentChallenge(null);
     const newG = new Chess();
     setGame(newG);
-    setDisplayFen(newG.fen());
     setMoveList([]);
     setGameStatus("waiting");
     setDrawOfferedBy(null);
     setTakebackOfferedBy(null);
     setGameBanner(null);
-    setMoveFrom(null);
-    clearPremoves();
     if (profile?.id) {
       fetchProfile(profile.id);
     }
-  }, [profile?.id, fetchProfile, clearPremoves]);
+  }, [profile?.id, fetchProfile]);
 
+  // Check for active game
   const checkForActiveGame = useCallback(async (username: string) => {
     const { data: activeGame, error } = await supabase
       .from("games")
@@ -197,50 +185,45 @@ export default function Home() {
       .limit(1)
       .maybeSingle();
 
-    if (!activeGame || error) {
-      setActiveTab("lobby");
-      return;
+    if (activeGame && !error) {
+      const isWhite = activeGame.white_player === username;
+      const { incrementSeconds } = parseTimeControl(activeGame.time_control || "3+0");
+
+      const restoredGame = new Chess();
+      if (activeGame.pgn) {
+        restoredGame.loadPgn(activeGame.pgn);
+      } else if (activeGame.fen) {
+        restoredGame.load(activeGame.fen);
+      }
+
+      const { calculatedWhite, calculatedBlack } = calculateRemainingTime(
+        activeGame.white_time ?? 180,
+        activeGame.black_time ?? 180,
+        restoredGame.turn(),
+        activeGame.last_move_at
+      );
+
+      setGame(restoredGame);
+      setMoveList(restoredGame.history());
+      setCurrentChallenge({
+        id: activeGame.id,
+        creator: activeGame.white_player || activeGame.black_player,
+        opponent: isWhite ? activeGame.black_player : activeGame.white_player,
+        rating: 1500,
+        bet: activeGame.bet,
+        timeControl: activeGame.time_control,
+        status: activeGame.status,
+        theme: activeGame.theme,
+      });
+      setIsSpectator(false);
+      setUserOrientation(isWhite ? "white" : "black");
+      setBoardTheme((activeGame.theme as any) || "green");
+      setWhiteTime(calculatedWhite);
+      setBlackTime(calculatedBlack);
+      setIncrement(incrementSeconds);
+      setGameStatus(activeGame.status);
+      setActiveTab("game");
     }
-
-    const isWhite = activeGame.white_player === username;
-    const { incrementSeconds } = parseTimeControl(activeGame.time_control || "3+0");
-
-    const restoredGame = new Chess();
-    if (activeGame.pgn) {
-      restoredGame.loadPgn(activeGame.pgn);
-    } else if (activeGame.fen) {
-      restoredGame.load(activeGame.fen);
-    }
-
-    const { calculatedWhite, calculatedBlack } = calculateRemainingTime(
-      activeGame.white_time ?? 180,
-      activeGame.black_time ?? 180,
-      restoredGame.turn(),
-      activeGame.last_move_at
-    );
-
-    setGame(restoredGame);
-    setDisplayFen(restoredGame.fen());
-    setMoveList(restoredGame.history());
-    setCurrentChallenge({
-      id: activeGame.id,
-      creator: activeGame.white_player || activeGame.black_player,
-      opponent: isWhite ? activeGame.black_player : activeGame.white_player,
-      rating: activeGame.creator_rating || 1500,
-      opponentRating: activeGame.opponent_rating || 1500,
-      bet: activeGame.bet,
-      timeControl: activeGame.time_control,
-      status: activeGame.status,
-      theme: activeGame.theme,
-    });
-    setIsSpectator(false);
-    setUserOrientation(isWhite ? "white" : "black");
-    setBoardTheme((activeGame.theme as any) || "green");
-    setWhiteTime(calculatedWhite);
-    setBlackTime(calculatedBlack);
-    setIncrement(incrementSeconds);
-    setGameStatus(activeGame.status);
-    setActiveTab("game");
   }, []);
 
   useEffect(() => {
@@ -249,6 +232,7 @@ export default function Home() {
     }
   }, [profile?.username, checkForActiveGame]);
 
+  // Fetch Session
   const fetchSessionAndProfile = useCallback(async () => {
     setLoadingProfile(true);
     const {
@@ -334,19 +318,10 @@ export default function Home() {
         });
       }
 
-      await supabase
-        .from("games")
-        .update({ status: "completed", winner })
-        .eq("id", currentChallenge.id);
-
-      try {
-        await supabase.rpc("settle_game_payout", {
-          game_id_input: currentChallenge.id,
-          winner_input: winner,
-        });
-      } catch (e) {
-        console.error("Payout error:", e);
-      }
+      await supabase.rpc("settle_game_payout", {
+        game_id_input: currentChallenge.id,
+        winner_input: winner,
+      });
 
       if (profile?.id) {
         await fetchProfile(profile.id);
@@ -380,117 +355,7 @@ export default function Home() {
     ]
   );
 
-  const makeAMove = useCallback(
-    async (move: any): Promise<boolean> => {
-      try {
-        const gameCopy = new Chess();
-        gameCopy.loadPgn(game.pgn());
-        const currentTurn = gameCopy.turn();
-        const result = gameCopy.move(move);
-
-        if (result) {
-          setGame(gameCopy);
-          setDisplayFen(gameCopy.fen());
-          setMoveList(gameCopy.history());
-
-          if (gameCopy.inCheck()) {
-            soundManager.play("check", isMuted);
-          } else if (result.captured) {
-            soundManager.play("capture", isMuted);
-          } else {
-            soundManager.play("move", isMuted);
-          }
-
-          const newWhiteTime =
-            currentTurn === "w" ? whiteTime + increment : whiteTime;
-          const newBlackTime =
-            currentTurn === "b" ? blackTime + increment : blackTime;
-
-          await supabase
-            .from("games")
-            .update({
-              fen: gameCopy.fen(),
-              pgn: gameCopy.pgn(),
-              turn: gameCopy.turn(),
-              white_time: newWhiteTime,
-              black_time: newBlackTime,
-              last_move_at: new Date().toISOString(),
-            })
-            .eq("id", currentChallenge?.id);
-
-          if (gameCopy.isGameOver() && currentChallenge?.id) {
-            let winnerStr = "Draw";
-            if (gameCopy.isCheckmate()) {
-              winnerStr = currentTurn === "w" ? "White" : "Black";
-            }
-
-            const isWinner =
-              (winnerStr === "White" && userOrientation === "white") ||
-              (winnerStr === "Black" && userOrientation === "black");
-
-            soundManager.play("gameOver", isMuted);
-
-            if (isWinner) {
-              triggerConfetti();
-            }
-
-            await supabase
-              .from("games")
-              .update({ status: "completed", winner: winnerStr })
-              .eq("id", currentChallenge.id);
-
-            try {
-              await supabase.rpc("settle_game_payout", {
-                game_id_input: currentChallenge.id,
-                winner_input: winnerStr,
-              });
-            } catch (err) {
-              console.error("Payout error:", err);
-            }
-
-            if (profile?.id) {
-              await fetchProfile(profile.id);
-            }
-          }
-
-          return true;
-        }
-      } catch {
-        return false;
-      }
-      return false;
-    },
-    [game, whiteTime, blackTime, increment, currentChallenge?.id, isMuted, userOrientation, triggerConfetti, profile?.id, fetchProfile]
-  );
-
-  useEffect(() => {
-    const currentTurn = game.turn();
-    const isMyTurn =
-      (userOrientation === "white" && currentTurn === "w") ||
-      (userOrientation === "black" && currentTurn === "b");
-
-    if (isMyTurn && premovesRef.current.length > 0) {
-      const nextPremove = premovesRef.current[0];
-      const remainingPremoves = premovesRef.current.slice(1);
-
-      premovesRef.current = remainingPremoves;
-      setPremoves(remainingPremoves);
-
-      makeAMove({
-        from: nextPremove.from,
-        to: nextPremove.to,
-        promotion: "q",
-      }).then((success) => {
-        if (!success) {
-          clearPremoves();
-          setDisplayFen(game.fen());
-        }
-      });
-    } else if (premovesRef.current.length === 0) {
-      setDisplayFen(game.fen());
-    }
-  }, [game, userOrientation, makeAMove, clearPremoves]);
-
+  // Realtime Subscriptions & Game State Sync
   useEffect(() => {
     if (!currentChallenge?.id) return;
 
@@ -513,10 +378,6 @@ export default function Home() {
 
           if (isWinner) {
             triggerConfetti();
-          }
-
-          if (profile?.id) {
-            await fetchProfile(profile.id);
           }
 
           setGameBanner({
@@ -553,14 +414,7 @@ export default function Home() {
               ? data.black_player
               : data.white_player;
           setCurrentChallenge((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  opponent: opp,
-                  rating: data.creator_rating || 1500,
-                  opponentRating: data.opponent_rating || 1500,
-                }
-              : null
+            prev ? { ...prev, opponent: opp } : null
           );
         }
       }
@@ -684,14 +538,7 @@ export default function Home() {
               ? updatedGame.black_player
               : updatedGame.white_player;
           setCurrentChallenge((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  opponent: opp,
-                  rating: updatedGame.creator_rating || 1500,
-                  opponentRating: updatedGame.opponent_rating || 1500,
-                }
-              : null
+            prev ? { ...prev, opponent: opp } : null
           );
         }
 
@@ -720,8 +567,9 @@ export default function Home() {
     isMuted,
   ]);
 
+  // Timer Countdown
   useEffect(() => {
-    if (gameStatus !== "live" || game.isGameOver() || moveList.length === 0) return;
+    if (gameStatus !== "live" || game.isGameOver()) return;
 
     const timer = setInterval(() => {
       const turn = game.turn();
@@ -747,7 +595,7 @@ export default function Home() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [gameStatus, game, moveList.length, handleTimeout]);
+  }, [gameStatus, game, handleTimeout]);
 
   const handleLeaveGame = async () => {
     if (!currentChallenge?.id || isSpectator) {
@@ -782,23 +630,14 @@ export default function Home() {
         channelRef.current.send({
           type: "broadcast",
           event: "game_ended",
-          payload: { winner: winnerName, reason: "resignation" },
+          payload: { winner: winnerName },
         });
       }
 
-      await supabase
-        .from("games")
-        .update({ status: "completed", winner: winnerName })
-        .eq("id", gameId);
-
-      try {
-        await supabase.rpc("settle_game_payout", {
-          game_id_input: gameId,
-          winner_input: winnerName,
-        });
-      } catch (err) {
-        console.error("Payout error:", err);
-      }
+      await supabase.rpc("settle_game_payout", {
+        game_id_input: gameId,
+        winner_input: winnerName,
+      });
 
       if (profile?.id) {
         await fetchProfile(profile.id);
@@ -829,19 +668,10 @@ export default function Home() {
         payload: { winner: "Draw" },
       });
 
-      await supabase
-        .from("games")
-        .update({ status: "completed", winner: "Draw" })
-        .eq("id", currentChallenge.id);
-
-      try {
-        await supabase.rpc("settle_game_payout", {
-          game_id_input: currentChallenge.id,
-          winner_input: "Draw",
-        });
-      } catch (e) {
-        console.error("Payout error:", e);
-      }
+      await supabase.rpc("settle_game_payout", {
+        game_id_input: currentChallenge.id,
+        winner_input: "Draw",
+      });
 
       if (profile?.id) {
         await fetchProfile(profile.id);
@@ -882,7 +712,6 @@ export default function Home() {
         const newPgn = gameCopy.pgn();
 
         setGame(gameCopy);
-        setDisplayFen(newFen);
         setMoveList(gameCopy.history());
 
         await supabase
@@ -911,84 +740,95 @@ export default function Home() {
     }
   };
 
-  const handleMoveAttempt = (sourceSquare: string, targetSquare: string): boolean => {
+  const makeAMove = (move: any): boolean => {
+    try {
+      const gameCopy = new Chess();
+      gameCopy.loadPgn(game.pgn());
+      const currentTurn = gameCopy.turn();
+      const result = gameCopy.move(move);
+
+      if (result) {
+        setGame(gameCopy);
+        setMoveList(gameCopy.history());
+
+        // Play Sound Effect via soundManager
+        if (gameCopy.inCheck()) {
+          soundManager.play("check", isMuted);
+        } else if (result.captured) {
+          soundManager.play("capture", isMuted);
+        } else {
+          soundManager.play("move", isMuted);
+        }
+
+        const newWhiteTime =
+          currentTurn === "w" ? whiteTime + increment : whiteTime;
+        const newBlackTime =
+          currentTurn === "b" ? blackTime + increment : blackTime;
+
+        supabase
+          .from("games")
+          .update({
+            fen: gameCopy.fen(),
+            pgn: gameCopy.pgn(),
+            turn: gameCopy.turn(),
+            white_time: newWhiteTime,
+            black_time: newBlackTime,
+            last_move_at: new Date().toISOString(),
+          })
+          .eq("id", currentChallenge?.id)
+          .then(({ error }) => {
+            if (error) console.error("Error updating game:", error);
+          });
+
+        if (gameCopy.isGameOver() && currentChallenge?.id) {
+          let winnerStr = "Draw";
+          if (gameCopy.isCheckmate()) {
+            winnerStr = currentTurn === "w" ? "White" : "Black";
+          }
+
+          const isWinner =
+            (winnerStr === "White" && userOrientation === "white") ||
+            (winnerStr === "Black" && userOrientation === "black");
+
+          soundManager.play("gameOver", isMuted);
+
+          if (isWinner) {
+            triggerConfetti();
+          }
+
+          supabase
+            .rpc("settle_game_payout", {
+              game_id_input: currentChallenge.id,
+              winner_input: winnerStr,
+            })
+            .then(async () => {
+              if (profile?.id) {
+                await fetchProfile(profile.id);
+              }
+            });
+        }
+
+        return true;
+      }
+    } catch {
+      return false;
+    }
+    return false;
+  };
+
+  const onDrop = (sourceSquare: string, targetSquare: string): boolean => {
     if (isSpectator || gameStatus !== "live") return false;
 
     const turn = game.turn();
-    const isMyTurn =
-      (turn === "w" && userOrientation === "white") ||
-      (turn === "b" && userOrientation === "black");
 
-    if (!isMyTurn) {
-      const tempGame = new Chess(displayFen);
-      const piece = tempGame.get(sourceSquare as Square);
+    if (turn === "w" && userOrientation !== "white") return false;
+    if (turn === "b" && userOrientation !== "black") return false;
 
-      if (piece) {
-        tempGame.remove(sourceSquare as Square);
-        tempGame.put(piece, targetSquare as Square);
-
-        const newPremove = { from: sourceSquare, to: targetSquare };
-        const updatedPremoves = [...premovesRef.current, newPremove];
-
-        premovesRef.current = updatedPremoves;
-        setPremoves(updatedPremoves);
-        setDisplayFen(tempGame.fen());
-      }
-
-      setMoveFrom(null);
-      return true;
-    }
-
-    clearPremoves();
-    setMoveFrom(null);
-
-    makeAMove({
+    return makeAMove({
       from: sourceSquare,
       to: targetSquare,
       promotion: "q",
     });
-
-    return true;
-  };
-
-  const onDrop = (sourceSquare: string, targetSquare: string): boolean => {
-    return handleMoveAttempt(sourceSquare, targetSquare);
-  };
-
-  const onSquareClick = (square: string) => {
-    if (isSpectator || gameStatus !== "live") return;
-
-    if (!moveFrom) {
-      const piece = game.get(square as Square);
-      if (piece) {
-        setMoveFrom(square);
-      }
-      return;
-    }
-
-    if (moveFrom === square) {
-      setMoveFrom(null);
-      return;
-    }
-
-    const moveSuccessful = handleMoveAttempt(moveFrom, square);
-
-    if (!moveSuccessful) {
-      const piece = game.get(square as Square);
-      if (piece) {
-        setMoveFrom(square);
-      } else {
-        setMoveFrom(null);
-      }
-    } else {
-      setMoveFrom(null);
-    }
-  };
-
-  const handleSquareRightClick = () => {
-    clearPremoves();
-    setDisplayFen(game.fen());
-    setMoveFrom(null);
   };
 
   const handleCreateGame = async (
@@ -1007,7 +847,6 @@ export default function Home() {
       return;
     }
 
-    const userRating = profile.rating ?? 1500;
     const newGame = new Chess();
     const { baseSeconds, incrementSeconds } = parseTimeControl(timeControl);
 
@@ -1022,18 +861,16 @@ export default function Home() {
       .from("games")
       .insert([
         {
-          creator_id: profile.id,
           white_player: isCreatorWhite ? profile.username : null,
           black_player: isCreatorWhite ? null : profile.username,
-          creator_rating: userRating,
           fen: newGame.fen(),
           pgn: newGame.pgn(),
           status: "waiting",
           turn: "w",
-          bet: Number(bet),
+          bet,
           time_control: timeControl,
           color: assignedColor,
-          theme: theme,
+          theme,
           white_time: baseSeconds,
           black_time: baseSeconds,
           last_move_at: new Date().toISOString(),
@@ -1043,7 +880,6 @@ export default function Home() {
       .single();
 
     if (error) {
-      console.error("Supabase error creating game:", error);
       setGameBanner({ type: "warning", message: error.message });
       return;
     }
@@ -1052,7 +888,7 @@ export default function Home() {
       const challenge: Challenge = {
         id: data.id,
         creator: profile.username,
-        rating: userRating,
+        rating: 1500,
         bet,
         timeControl,
         status: "waiting",
@@ -1060,7 +896,6 @@ export default function Home() {
       };
 
       setGame(newGame);
-      setDisplayFen(newGame.fen());
       setMoveList([]);
       setCurrentChallenge(challenge);
       setIsSpectator(false);
@@ -1087,29 +922,18 @@ export default function Home() {
 
     const { data: existingGame } = await supabase
       .from("games")
-      .select("white_player, black_player, theme, time_control, white_time, black_time, pgn, fen, creator_rating")
+      .select("white_player, black_player, theme, time_control, white_time, black_time, pgn, fen")
       .eq("id", challenge.id)
       .single();
 
     if (!existingGame) return;
 
-    const myRating = profile.rating ?? 1500;
     const isWhiteTaken = Boolean(existingGame.white_player);
     const myColor = isWhiteTaken ? "black" : "white";
 
     const updateData = isWhiteTaken
-      ? {
-          black_player: profile.username,
-          opponent_rating: myRating,
-          status: "live",
-          last_move_at: new Date().toISOString(),
-        }
-      : {
-          white_player: profile.username,
-          opponent_rating: myRating,
-          status: "live",
-          last_move_at: new Date().toISOString(),
-        };
+      ? { black_player: profile.username, status: "live", last_move_at: new Date().toISOString() }
+      : { white_player: profile.username, status: "live", last_move_at: new Date().toISOString() };
 
     const { error } = await supabase
       .from("games")
@@ -1139,7 +963,6 @@ export default function Home() {
     }
 
     setGame(newGame);
-    setDisplayFen(newGame.fen());
     setMoveList(newGame.history());
 
     const { incrementSeconds } = parseTimeControl(
@@ -1148,8 +971,6 @@ export default function Home() {
 
     setCurrentChallenge({
       ...challenge,
-      rating: existingGame.creator_rating || 1500,
-      opponentRating: myRating,
       status: "live",
       opponent: profile.username,
     });
@@ -1188,27 +1009,6 @@ export default function Home() {
     backgroundAttachment: "fixed",
   };
 
-  const getCustomSquareStyles = () => {
-    const styles: Record<string, any> = {};
-
-    if (moveFrom) {
-      styles[moveFrom] = { backgroundColor: "rgba(255, 255, 0, 0.4)" };
-    }
-
-    premoves.forEach((p) => {
-      styles[p.from] = {
-        backgroundColor: "rgba(235, 97, 80, 0.75)",
-        borderRadius: "4px",
-      };
-      styles[p.to] = {
-        backgroundColor: "rgba(235, 97, 80, 0.9)",
-        borderRadius: "4px",
-      };
-    });
-
-    return styles;
-  };
-
   if (loadingProfile) {
     return (
       <main
@@ -1240,19 +1040,10 @@ export default function Home() {
               Chess<span className="text-emerald-400">Bet</span>
             </span>
           </div>
-
-          <div className="flex items-center gap-3">
-            <Link 
-              href="/leaderboard" 
-              className="px-4 py-2 bg-slate-900 border border-slate-800 text-emerald-400 rounded-xl text-xs font-bold hover:bg-slate-800 transition flex items-center gap-2 backdrop-blur-md"
-            >
-              🏆 Leaderboard
-            </Link>
-            <span className="text-xs text-slate-400 bg-slate-900/80 border border-slate-800 px-3 py-1.5 rounded-xl flex items-center gap-2 backdrop-blur-md">
-              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-              👁️ Spectator Mode
-            </span>
-          </div>
+          <span className="text-xs text-slate-400 bg-slate-900/80 border border-slate-800 px-3 py-1.5 rounded-xl flex items-center gap-2 backdrop-blur-md">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            👁️ Spectator Mode
+          </span>
         </header>
 
         <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-12 gap-8 z-10 items-start">
@@ -1388,13 +1179,6 @@ export default function Home() {
         </div>
 
         <div className="flex gap-4 items-center">
-          <Link 
-            href="/leaderboard" 
-            className="px-4 py-2 bg-slate-900/80 border border-slate-800 text-emerald-400 rounded-xl text-xs font-bold hover:bg-slate-800 transition flex items-center gap-2 backdrop-blur-md"
-          >
-            🏆 Leaderboard
-          </Link>
-
           <button
             onClick={() => resetToLobby()}
             className={`px-4 py-2 rounded-xl text-sm font-bold transition cursor-pointer backdrop-blur-md ${
@@ -1416,29 +1200,9 @@ export default function Home() {
                   +
                 </button>
               </div>
-
-              <div className="bg-slate-900/80 backdrop-blur-md border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-mono text-slate-200 flex items-center gap-2">
-                <div className="w-5 h-5 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center overflow-hidden shrink-0">
-                  {profile.avatar_url ? (
-                    <img src={profile.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-xs">👤</span>
-                  )}
-                </div>
-                <span>{profile.username}</span>
-                <span className="text-xs text-amber-400 font-extrabold bg-amber-400/20 px-2 py-0.5 rounded border border-amber-400/40 flex items-center gap-1">
-                  ⭐ Rating: {profile.rating ?? 1500}
-                </span>
+              <div className="bg-slate-900/80 backdrop-blur-md border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-mono text-slate-200">
+                👤 {profile.username}
               </div>
-
-              <button
-                onClick={() => setShowProfileModal(true)}
-                className="p-2 bg-slate-900/80 border border-slate-800 hover:bg-slate-800 text-slate-300 rounded-xl text-xs font-bold transition cursor-pointer backdrop-blur-md"
-                title="Profile Settings"
-              >
-                ⚙️
-              </button>
-
               <button
                 onClick={handleLogout}
                 className="px-3 py-1.5 bg-rose-500/10 border border-rose-500/30 text-rose-400 font-bold rounded-xl text-xs hover:bg-rose-500/20 transition cursor-pointer backdrop-blur-md"
@@ -1469,14 +1233,12 @@ export default function Home() {
       ) : (
         <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <div className="lg:col-span-7 flex flex-col items-center gap-4">
+            {/* Top Match Info Bar */}
             <div className="w-full bg-slate-900/80 p-4 rounded-xl border border-slate-800 flex justify-between items-center text-sm font-semibold backdrop-blur-md">
-              <div className="flex items-center gap-2">
+              <div>
                 <span className="text-slate-400">Creator: </span>
                 <span className="text-emerald-400 font-bold">
                   {currentChallenge?.creator}
-                </span>
-                <span className="text-xs text-amber-400 font-extrabold bg-amber-400/20 px-2 py-0.5 rounded border border-amber-400/40">
-                  ⭐ Rating: {currentChallenge?.rating ?? 1500}
                 </span>
               </div>
               {isSpectator && (
@@ -1484,19 +1246,15 @@ export default function Home() {
                   👁️ Spectating
                 </span>
               )}
-              <div className="flex items-center gap-2">
+              <div>
                 <span className="text-slate-400">Opponent: </span>
                 <span className="text-rose-400 font-bold">
                   {currentChallenge?.opponent || "Waiting..."}
                 </span>
-                {currentChallenge?.opponent && (
-                  <span className="text-xs text-amber-400 font-extrabold bg-amber-400/20 px-2 py-0.5 rounded border border-amber-400/40">
-                    ⭐ Rating: {currentChallenge?.opponentRating ?? 1500}
-                  </span>
-                )}
               </div>
             </div>
 
+            {/* Chess Clock */}
             <ChessClock
               whiteTime={whiteTime}
               blackTime={blackTime}
@@ -1504,6 +1262,7 @@ export default function Home() {
               isGameActive={gameStatus === "live"}
             />
 
+            {/* Interactive Control Buttons */}
             <div className="w-full flex gap-2 justify-between max-w-[500px]">
               {!isSpectator && gameStatus === "live" && (
                 <>
@@ -1543,25 +1302,22 @@ export default function Home() {
               </button>
             </div>
 
+            {/* Chessboard */}
             <div className="w-full max-w-[500px] aspect-square rounded-2xl overflow-hidden shadow-2xl border border-slate-800">
               <Chessboard
-                position={displayFen}
+                position={game.fen()}
                 onPieceDrop={onDrop}
-                onSquareClick={onSquareClick}
-                onSquareRightClick={handleSquareRightClick}
                 boardOrientation={userOrientation}
                 customDarkSquareStyle={{ backgroundColor: activeTheme.dark }}
                 customLightSquareStyle={{ backgroundColor: activeTheme.light }}
-                customBoardStyle={{ cursor: "default" }}
-                customSquareStyles={getCustomSquareStyles()}
-                animationDuration={150}
-                arePiecesDraggable={true}
               />
             </div>
 
+            {/* ALL NOTIFICATIONS & OFFERS */}
             <div className="w-full max-w-[500px] flex flex-col gap-2">
+              {/* Draw Offer */}
               {drawOfferedBy && drawOfferedBy !== profile?.username && (
-                <div className="bg-amber-500/25 backdrop-blur-md border border-amber-500/40 p-3 rounded-xl flex items-center justify-between text-xs text-amber-300">
+                <div className="bg-amber-500/20 backdrop-blur-md border border-amber-500/40 p-3 rounded-xl flex items-center justify-between text-xs text-amber-300">
                   <span>🤝 {drawOfferedBy} offers a draw. Accept?</span>
                   <div className="flex gap-2">
                     <button
@@ -1580,8 +1336,9 @@ export default function Home() {
                 </div>
               )}
 
+              {/* Takeback Offer */}
               {takebackOfferedBy && takebackOfferedBy !== profile?.username && (
-                <div className="bg-amber-500/25 backdrop-blur-md border border-amber-500/40 p-3 rounded-xl flex items-center justify-between text-xs text-amber-300">
+                <div className="bg-amber-500/20 backdrop-blur-md border border-amber-500/40 p-3 rounded-xl flex items-center justify-between text-xs text-amber-300">
                   <span>↩️ {takebackOfferedBy} requests a takeback. Accept?</span>
                   <div className="flex gap-2">
                     <button
@@ -1600,6 +1357,7 @@ export default function Home() {
                 </div>
               )}
 
+              {/* Status Game Banner */}
               {gameBanner && (
                 <div
                   className={`w-full p-3 rounded-xl border text-center text-xs font-bold backdrop-blur-md transition-all ${
@@ -1634,16 +1392,6 @@ export default function Home() {
           userId={profile?.id}
           username={profile?.username}
           onClose={() => setShowDepositModal(false)}
-        />
-      )}
-
-      {showProfileModal && (
-        <ProfileSettingsModal
-          profile={profile}
-          onClose={() => setShowProfileModal(false)}
-          onProfileUpdated={() => {
-            if (profile?.id) fetchProfile(profile.id);
-          }}
         />
       )}
     </main>
