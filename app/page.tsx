@@ -82,36 +82,15 @@ const calculateRemainingTime = (
   }
 };
 
-// Ratings update helper function
+// Ratings update using secure RPC function to bypass RLS
 const updateRatingsInDb = async (winnerName: string, loserName: string) => {
   try {
-    const { data: winData } = await supabase
-      .from("profiles")
-      .select("rating")
-      .eq("username", winnerName)
-      .single();
-
-    if (winData) {
-      await supabase
-        .from("profiles")
-        .update({ rating: (winData.rating || 1500) + 10 })
-        .eq("username", winnerName);
-    }
-
-    const { data: loseData } = await supabase
-      .from("profiles")
-      .select("rating")
-      .eq("username", loserName)
-      .single();
-
-    if (loseData) {
-      await supabase
-        .from("profiles")
-        .update({ rating: Math.max(100, (loseData.rating || 1500) - 10) })
-        .eq("username", loserName);
-    }
+    await supabase.rpc("update_player_ratings", {
+      winner_name: winnerName,
+      loser_name: loserName,
+    });
   } catch (err) {
-    console.error("Error updating ratings:", err);
+    console.error("Error updating ratings via RPC:", err);
   }
 };
 
