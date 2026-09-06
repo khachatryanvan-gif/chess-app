@@ -26,3 +26,8 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans);
 }
+/* Ստիպողաբար սովորական դարձնել մկնիկի տեսքը շախմատի տախտակի և քարերի վրա */
+div[data-boardcontainer] *,
+div[data-piece] {
+  cursor: default !important;
+}

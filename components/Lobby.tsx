@@ -6,7 +6,8 @@ import { supabase } from "@/lib/supabase";
 export interface Challenge {
   id: string;
   creator: string;
-  rating: number;
+  rating: number; // Creator Elo Rating
+  opponentRating?: number; // Opponent Elo Rating
   bet: number;
   timeControl: string;
   status: "waiting" | "live";
@@ -16,7 +17,7 @@ export interface Challenge {
 }
 
 interface LobbyProps {
-  readOnly?: boolean; // 👈 Ավելացվել է readOnly prop-ը
+  readOnly?: boolean;
   onJoinGame: (challenge: Challenge) => void;
   onWatchGame: (challenge: Challenge) => void;
   onCreateGame: (
@@ -28,7 +29,7 @@ interface LobbyProps {
 }
 
 export default function Lobby({
-  readOnly = false, // 👈 Լռելյայն false է
+  readOnly = false,
   onJoinGame,
   onWatchGame,
   onCreateGame,
@@ -41,7 +42,6 @@ export default function Lobby({
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
 
   const fetchGames = async () => {
-    // Եթե readOnly է՝ վերցնում ենք "live" խաղերը, հակառակ դեպքում "waiting" խաղերը
     const targetStatus = readOnly ? "live" : "waiting";
 
     const { data, error } = await supabase
@@ -60,7 +60,8 @@ export default function Lobby({
               ? game.black_player
               : game.white_player
             : game.black_player || game.white_player,
-        rating: 1500,
+        rating: game.creator_rating || 1500, // 👈 Իրական ռեյտինգ Supabase-ից
+        opponentRating: game.opponent_rating || 1500,
         bet: game.bet || 10,
         timeControl: game.time_control || "3+2",
         status: game.status,
@@ -97,6 +98,29 @@ export default function Lobby({
     setIsModalOpen(false);
   };
 
+  // Ֆունկցիա՝ հաշվարկելու, թե ինչ գույնով է խաղալու միացողը
+  const getJoinerColor = (creatorColor?: "white" | "black" | "random") => {
+    if (creatorColor === "white") {
+      return (
+        <span className="px-2.5 py-1 rounded-lg bg-slate-950 text-slate-200 border border-slate-700 text-[11px] font-bold flex items-center gap-1 shadow-sm">
+          ♚ You play as Black
+        </span>
+      );
+    }
+    if (creatorColor === "black") {
+      return (
+        <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-950 border border-white text-[11px] font-bold flex items-center gap-1 shadow-sm">
+          ♔ You play as White
+        </span>
+      );
+    }
+    return (
+      <span className="px-2.5 py-1 rounded-lg bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[11px] font-bold flex items-center gap-1">
+        🎲 Random Color
+      </span>
+    );
+  };
+
   return (
     <div className="w-full max-w-4xl flex flex-col gap-6 font-mono">
       <div className="flex justify-between items-center bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-lg">
@@ -109,7 +133,6 @@ export default function Lobby({
           </p>
         </div>
 
-        {/* Կոճակը երևում է միայն գրանցված (ոչ readOnly) օգտատերերի համար */}
         {!readOnly && (
           <button
             onClick={() => setIsModalOpen(true)}
@@ -120,7 +143,7 @@ export default function Lobby({
         )}
       </div>
 
-      {/* Modal - Ցուցադրվում է միայն երբ readOnly չէ */}
+      {/* Modal - Create Game */}
       {!readOnly && isModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl flex flex-col gap-5">
@@ -258,7 +281,7 @@ export default function Lobby({
             {challenges.map((item) => (
               <div
                 key={item.id}
-                className="p-4 flex items-center justify-between hover:bg-slate-800/40 transition"
+                className="p-4 flex items-center justify-between hover:bg-slate-800/40 transition gap-4"
               >
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center font-black text-emerald-400">
@@ -269,19 +292,25 @@ export default function Lobby({
                       <span className="font-bold text-slate-200 text-sm">
                         {item.creator}
                       </span>
+                      
+                      {/* 🟢 ԽԱՂԱՑՈՂԻ ԻՐԱԿԱՆ ՌԵՅՏԻՆԳԸ */}
+                      <span className="text-xs text-amber-400 font-mono bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/20 font-bold">
+                        ⭐ {item.rating}
+                      </span>
+
                       {item.opponent && (
-                        <span className="text-xs text-slate-400">
-                          vs{" "}
-                          <span className="text-rose-400 font-bold">
+                        <>
+                          <span className="text-xs text-slate-500">vs</span>
+                          <span className="text-rose-400 font-bold text-sm">
                             {item.opponent}
                           </span>
-                        </span>
+                          <span className="text-xs text-amber-400 font-mono bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/20 font-bold">
+                            ⭐ {item.opponentRating}
+                          </span>
+                        </>
                       )}
-                      <span className="text-xs text-slate-500 font-mono">
-                        ({item.rating})
-                      </span>
                     </div>
-                    <div className="flex gap-3 text-xs text-slate-400 mt-1">
+                    <div className="flex flex-wrap gap-3 text-xs text-slate-400 mt-1">
                       <span>⏱️ {item.timeControl}</span>
                       <span>💰 {item.bet} USDT</span>
                       <span className="capitalize">
@@ -295,8 +324,10 @@ export default function Lobby({
                   </div>
                 </div>
 
-                {/* Կոճակների տրամաբանությունը */}
+                {/* ԿՈՃԱԿՆԵՐ ԵՎ ԳՈՒՅՆԻ BADGE */}
                 <div className="flex items-center gap-3">
+                  {!readOnly && getJoinerColor(item.color)}
+
                   {readOnly ? (
                     <button
                       onClick={() => onWatchGame(item)}
