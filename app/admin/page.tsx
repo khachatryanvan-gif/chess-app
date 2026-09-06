@@ -13,6 +13,12 @@ interface UserProfile {
   email?: string;
 }
 
+interface AnnouncementSettings {
+  enabled: boolean;
+  message: string;
+  type: "info" | "warning" | "success" | "danger";
+}
+
 export default function AdminDashboard() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -20,9 +26,16 @@ export default function AdminDashboard() {
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [newBalance, setNewBalance] = useState<number>(0);
 
-  // 1. Ստուգում ենք՝ արդյո՞ք մուտք գործած օգտատերը Admin է
+  // Announcement State
+  const [announcement, setAnnouncement] = useState<AnnouncementSettings>({
+    enabled: true,
+    message: "",
+    type: "info",
+  });
+  const [savingAnnouncement, setSavingAnnouncement] = useState(false);
+
   useEffect(() => {
-    const checkAdmin = async () => {
+    const checkAdminAndFetch = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         setLoading(false);
@@ -39,27 +52,52 @@ export default function AdminDashboard() {
         setProfile(data as UserProfile);
         if (data.role === "admin") {
           fetchUsers();
+          fetchAnnouncement();
         }
       }
       setLoading(false);
     };
 
-    checkAdmin();
+    checkAdminAndFetch();
   }, []);
 
-  // 2. Բեռնում ենք բոլոր օգտատերերի ցուցակը
   const fetchUsers = async () => {
     const { data } = await supabase
       .from("profiles")
       .select("*")
       .order("created_at", { ascending: false });
 
-    if (data) {
-      setUsers(data as UserProfile[]);
+    if (data) setUsers(data as UserProfile[]);
+  };
+
+  const fetchAnnouncement = async () => {
+    const { data } = await supabase
+      .from("settings")
+      .select("value")
+      .eq("key", "announcement")
+      .single();
+
+    if (data?.value) {
+      setAnnouncement(data.value as AnnouncementSettings);
     }
   };
 
-  // 3. Թարմացնում ենք օգտատիրոջ հաշվեկշիռը (Balance)
+  const handleSaveAnnouncement = async () => {
+    setSavingAnnouncement(true);
+    const { error } = await supabase.from("settings").upsert({
+      key: "announcement",
+      value: announcement,
+      updated_at: new Date().toISOString(),
+    });
+
+    setSavingAnnouncement(false);
+    if (!error) {
+      alert("Banner/Announcement updated successfully!");
+    } else {
+      alert("Error saving announcement: " + error.message);
+    }
+  };
+
   const handleUpdateBalance = async (userId: string) => {
     const { error } = await supabase
       .from("profiles")
@@ -107,54 +145,128 @@ export default function AdminDashboard() {
         </Link>
       </header>
 
-      {/* Users Management Section */}
-      <section className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl">
-        <h2 className="text-lg font-bold text-slate-200 mb-4 flex items-center gap-2">
-          <span>👥 User Management</span>
-          <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2.5 py-0.5 rounded-full border border-emerald-500/30">
-            {users.length} Users
-          </span>
-        </h2>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+        {/* Banner/Announcement Management Section */}
+        <section className="lg:col-span-1 bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-slate-200 mb-4 flex items-center gap-2">
+              <span>📢 Announcement Banner</span>
+            </h2>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="border-b border-slate-800 text-slate-400 uppercase">
-                <th className="p-3">Username</th>
-                <th className="p-3">Role</th>
-                <th className="p-3">Rating</th>
-                <th className="p-3">Balance (USDT)</th>
-                <th className="p-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u) => (
-                <tr key={u.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition">
-                  <td className="p-3 font-bold text-slate-200">{u.username}</td>
-                  <td className="p-3">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${u.role === 'admin' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-slate-800 text-slate-400'}`}>
-                      {u.role || 'user'}
-                    </span>
-                  </td>
-                  <td className="p-3 text-amber-400 font-bold">⭐ {u.rating ?? 1500}</td>
-                  <td className="p-3 text-emerald-400 font-bold">{u.balance} USDT</td>
-                  <td className="p-3">
-                    <button
-                      onClick={() => {
-                        setEditingUser(u);
-                        setNewBalance(u.balance);
-                      }}
-                      className="px-3 py-1 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 rounded-lg font-bold hover:bg-emerald-500/30 transition"
-                    >
-                      Edit Balance
-                    </button>
-                  </td>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between bg-slate-950 p-3 rounded-xl border border-slate-800">
+                <span className="text-xs font-bold text-slate-300">Show Banner on Site</span>
+                <input
+                  type="checkbox"
+                  checked={announcement.enabled}
+                  onChange={(e) => setAnnouncement({ ...announcement, enabled: e.target.checked })}
+                  className="w-5 h-5 accent-emerald-500 cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1">Banner Type / Style</label>
+                <select
+                  value={announcement.type}
+                  onChange={(e) => setAnnouncement({ ...announcement, type: e.target.value as any })}
+                  className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs p-3 rounded-xl focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="info">🔵 Info (Blue)</option>
+                  <option value="success">🟢 Success / Promo (Green)</option>
+                  <option value="warning">🟡 Warning / Alert (Yellow)</option>
+                  <option value="danger">🔴 Critical Alert (Red)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1">Banner Text / Message</label>
+                <textarea
+                  rows={4}
+                  value={announcement.message}
+                  onChange={(e) => setAnnouncement({ ...announcement, message: e.target.value })}
+                  placeholder="Enter banner message..."
+                  className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs p-3 rounded-xl focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              {/* Preview */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Live Preview</label>
+                <div
+                  className={`p-3 rounded-xl text-xs font-medium border ${
+                    announcement.type === "info"
+                      ? "bg-blue-500/10 border-blue-500/30 text-blue-400"
+                      : announcement.type === "success"
+                      ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                      : announcement.type === "warning"
+                      ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                      : "bg-rose-500/10 border-rose-500/30 text-rose-400"
+                  }`}
+                >
+                  {announcement.message || "Banner message will appear here..."}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={handleSaveAnnouncement}
+            disabled={savingAnnouncement}
+            className="w-full mt-6 py-3 bg-emerald-500 text-slate-950 font-bold rounded-xl hover:bg-emerald-400 transition disabled:opacity-50 text-xs"
+          >
+            {savingAnnouncement ? "Saving..." : "Save Banner Settings"}
+          </button>
+        </section>
+
+        {/* User Management Section */}
+        <section className="lg:col-span-2 bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl">
+          <h2 className="text-lg font-bold text-slate-200 mb-4 flex items-center gap-2">
+            <span>👥 User Management</span>
+            <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2.5 py-0.5 rounded-full border border-emerald-500/30">
+              {users.length} Users
+            </span>
+          </h2>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-800 text-slate-400 uppercase">
+                  <th className="p-3">Username</th>
+                  <th className="p-3">Role</th>
+                  <th className="p-3">Rating</th>
+                  <th className="p-3">Balance (USDT)</th>
+                  <th className="p-3">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+              </thead>
+              <tbody>
+                {users.map((u) => (
+                  <tr key={u.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition">
+                    <td className="p-3 font-bold text-slate-200">{u.username}</td>
+                    <td className="p-3">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${u.role === 'admin' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-slate-800 text-slate-400'}`}>
+                        {u.role || 'user'}
+                      </span>
+                    </td>
+                    <td className="p-3 text-amber-400 font-bold">⭐ {u.rating ?? 1500}</td>
+                    <td className="p-3 text-emerald-400 font-bold">{u.balance} USDT</td>
+                    <td className="p-3">
+                      <button
+                        onClick={() => {
+                          setEditingUser(u);
+                          setNewBalance(u.balance);
+                        }}
+                        className="px-3 py-1 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 rounded-lg font-bold hover:bg-emerald-500/30 transition"
+                      >
+                        Edit
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
 
       {/* Edit Balance Modal */}
       {editingUser && (
