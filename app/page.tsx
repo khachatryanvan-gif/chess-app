@@ -196,7 +196,7 @@ export default function Home() {
     }
   }, [profile?.id, fetchProfile, clearPremoves]);
 
-  // CHECK ACTIVE GAME (Միայն Waiting կամ Live status-ով խաղերը)
+  // CHECK ACTIVE GAME (Ֆիլտրում ենք ՄԻԱՅՆ 'waiting' և 'live' status-ով խաղերը)
   const checkForActiveGame = useCallback(async (username: string) => {
     const { data: activeGame, error } = await supabase
       .from("games")
@@ -330,6 +330,7 @@ export default function Home() {
     resetToLobby();
   };
 
+  // TIMEOUT END GAME
   const handleTimeout = useCallback(
     async (timedOutColor: "w" | "b") => {
       if (gameStatus !== "live" || !currentChallenge?.id) return;
@@ -344,11 +345,13 @@ export default function Home() {
         });
       }
 
+      // 1. Անմիջապես փոխում ենք status-ը completed
       await supabase
         .from("games")
         .update({ status: "completed", winner })
         .eq("id", currentChallenge.id);
 
+      // 2. Կանչում ենք RPC
       try {
         await supabase.rpc("settle_game_payout", {
           game_id_input: currentChallenge.id,
@@ -390,8 +393,9 @@ export default function Home() {
     ]
   );
 
+  // MAKE A MOVE (CHECKMATE / GAME OVER DIRECT UPDATE)
   const makeAMove = useCallback(
-    (move: any): boolean => {
+    async (move: any): Promise<boolean> => {
       try {
         const gameCopy = new Chess();
         gameCopy.loadPgn(game.pgn());
@@ -416,7 +420,7 @@ export default function Home() {
           const newBlackTime =
             currentTurn === "b" ? blackTime + increment : blackTime;
 
-          supabase
+          await supabase
             .from("games")
             .update({
               fen: gameCopy.fen(),
@@ -426,11 +430,9 @@ export default function Home() {
               black_time: newBlackTime,
               last_move_at: new Date().toISOString(),
             })
-            .eq("id", currentChallenge?.id)
-            .then(({ error }) => {
-              if (error) console.error("Error updating game:", error);
-            });
+            .eq("id", currentChallenge?.id);
 
+          // ԵԹԵ ԽԱՂՆ ԱՎԱՐՏՎԵԼ Է (ՄԱՏ / ՈՉ-ՈՔԻ)
           if (gameCopy.isGameOver() && currentChallenge?.id) {
             let winnerStr = "Draw";
             if (gameCopy.isCheckmate()) {
@@ -447,22 +449,25 @@ export default function Home() {
               triggerConfetti();
             }
 
-            supabase
+            // 1. Անմիջապես փոխում ենք games-ի status-ը completed
+            await supabase
               .from("games")
               .update({ status: "completed", winner: winnerStr })
-              .eq("id", currentChallenge.id)
-              .then(() => {
-                supabase
-                  .rpc("settle_game_payout", {
-                    game_id_input: currentChallenge.id,
-                    winner_input: winnerStr,
-                  })
-                  .then(async () => {
-                    if (profile?.id) {
-                      await fetchProfile(profile.id);
-                    }
-                  });
+              .eq("id", currentChallenge.id);
+
+            // 2. Կանչում ենք RPC
+            try {
+              await supabase.rpc("settle_game_payout", {
+                game_id_input: currentChallenge.id,
+                winner_input: winnerStr,
               });
+            } catch (err) {
+              console.error("Payout error:", err);
+            }
+
+            if (profile?.id) {
+              await fetchProfile(profile.id);
+            }
           }
 
           return true;
@@ -488,16 +493,16 @@ export default function Home() {
       premovesRef.current = remainingPremoves;
       setPremoves(remainingPremoves);
 
-      const success = makeAMove({
+      makeAMove({
         from: nextPremove.from,
         to: nextPremove.to,
         promotion: "q",
+      }).then((success) => {
+        if (!success) {
+          clearPremoves();
+          setDisplayFen(game.fen());
+        }
       });
-
-      if (!success) {
-        clearPremoves();
-        setDisplayFen(game.fen());
-      }
     } else if (premovesRef.current.length === 0) {
       setDisplayFen(game.fen());
     }
@@ -762,7 +767,7 @@ export default function Home() {
     return () => clearInterval(timer);
   }, [gameStatus, game, moveList.length, handleTimeout]);
 
-  // HANDLE LEAVE / RESIGN GAME (Երաշխավորված status update)
+  // HANDLE LEAVE / RESIGN GAME
   const handleLeaveGame = async () => {
     if (!currentChallenge?.id || isSpectator) {
       resetToLobby();
@@ -792,7 +797,6 @@ export default function Home() {
             : "White";
       }
 
-      // 1. Broadcast անում մյուս խաղացողին
       if (channelRef.current) {
         channelRef.current.send({
           type: "broadcast",
@@ -801,13 +805,13 @@ export default function Home() {
         });
       }
 
-      // 2. Անմիջապես փոխում ենք games-ի status-ը completed
+      // 1. Անմիջապես փոխում ենք games-ի status-ը completed
       await supabase
         .from("games")
         .update({ status: "completed", winner: winnerName })
         .eq("id", gameId);
 
-      // 3. Կանչում ենք RPC-ն
+      // 2. Կանչում ենք RPC
       try {
         await supabase.rpc("settle_game_payout", {
           game_id_input: gameId,
@@ -959,11 +963,13 @@ export default function Home() {
     clearPremoves();
     setMoveFrom(null);
 
-    return makeAMove({
+    makeAMove({
       from: sourceSquare,
       to: targetSquare,
       promotion: "q",
     });
+
+    return true;
   };
 
   const onDrop = (sourceSquare: string, targetSquare: string): boolean => {
