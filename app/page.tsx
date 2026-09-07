@@ -485,21 +485,29 @@ export default function Home() {
     }
   }, [game, userOrientation, makeAMove, clearPremoves]);
 
-  // Allow dragging pieces when it's your piece (even if it's opponent's turn for premoves)
+  // Flexible Dragging Function for Chessboard
   const isDraggablePiece = useCallback(({ piece }: { piece: string }) => {
     if (isSpectator || gameStatus !== "live") return false;
-
-    const pieceColor = piece[0]; // 'w' or 'b'
-    const isMyPiece =
+    const pieceColor = piece[0]; // 'w' կամ 'b'
+    return (
       (userOrientation === "white" && pieceColor === "w") ||
-      (userOrientation === "black" && pieceColor === "b");
-
-    return isMyPiece;
+      (userOrientation === "black" && pieceColor === "b")
+    );
   }, [isSpectator, gameStatus, userOrientation]);
 
-  // Handle Move Attempt (Supports Regular & Multiple Premoves)
+  // Handle Move Attempt (Regular & Multiple Premoves)
   const handleMoveAttempt = useCallback((sourceSquare: string, targetSquare: string): boolean => {
     if (isSpectator || gameStatus !== "live") return false;
+
+    const boardCheck = new Chess(displayFen);
+    const piece = boardCheck.get(sourceSquare as Square);
+    if (!piece) return false;
+
+    const isMyPiece =
+      (userOrientation === "white" && piece.color === "w") ||
+      (userOrientation === "black" && piece.color === "b");
+
+    if (!isMyPiece) return false;
 
     const turn = game.turn();
     const isMyTurn =
@@ -516,56 +524,42 @@ export default function Home() {
       return Boolean(res);
     }
 
-    // Multiple Premove Logic
-    const tempBoard = new Chess(game.fen());
-    
-    premovesRef.current.forEach((p) => {
-      try {
-        tempBoard.move({ from: p.from, to: p.to, promotion: "q" });
-      } catch {}
-    });
-
-    const piece = tempBoard.get(sourceSquare as Square);
-
-    if (piece) {
-      const isMyPiece =
-        (userOrientation === "white" && piece.color === "w") ||
-        (userOrientation === "black" && piece.color === "b");
-
-      if (isMyPiece) {
+    try {
+      const tempBoard = new Chess(game.fen());
+      premovesRef.current.forEach((p) => {
         try {
-          const tempMoveCheck = new Chess(tempBoard.fen());
-          const moveResult = tempMoveCheck.move({
-            from: sourceSquare,
-            to: targetSquare,
-            promotion: "q",
-          });
+          tempBoard.move({ from: p.from, to: p.to, promotion: "q" });
+        } catch {}
+      });
 
-          if (moveResult) {
-            const newPremove = { from: sourceSquare, to: targetSquare };
-            const updatedPremoves = [...premovesRef.current, newPremove];
+      const moveResult = tempBoard.move({
+        from: sourceSquare,
+        to: targetSquare,
+        promotion: "q",
+      });
 
-            premovesRef.current = updatedPremoves;
-            setPremoves(updatedPremoves);
+      if (moveResult) {
+        const newPremove = { from: sourceSquare, to: targetSquare };
+        const updatedPremoves = [...premovesRef.current, newPremove];
 
-            const boardCopy = new Chess(game.fen());
-            for (const p of updatedPremoves) {
-              try {
-                boardCopy.move({ from: p.from, to: p.to, promotion: "q" });
-              } catch {}
-            }
-            
-            setDisplayFen(boardCopy.fen());
-            return true;
-          }
-        } catch (e) {
-          console.error("Multiple premove error:", e);
+        premovesRef.current = updatedPremoves;
+        setPremoves(updatedPremoves);
+
+        const boardCopy = new Chess(game.fen());
+        for (const p of updatedPremoves) {
+          try {
+            boardCopy.move({ from: p.from, to: p.to, promotion: "q" });
+          } catch {}
         }
+        setDisplayFen(boardCopy.fen());
+        return true;
       }
+    } catch (e) {
+      console.error("Premove error:", e);
     }
 
     return false;
-  }, [game, gameStatus, isSpectator, userOrientation, makeAMove, clearPremoves]);
+  }, [game, gameStatus, isSpectator, userOrientation, makeAMove, clearPremoves, displayFen]);
 
   // Realtime Subscriptions & Game State Sync
   useEffect(() => {
@@ -1445,6 +1439,7 @@ export default function Home() {
                 onPieceDrop={handleMoveAttempt}
                 isDraggablePiece={isDraggablePiece}
                 boardOrientation={userOrientation}
+                arePiecesDraggable={true}
                 customDarkSquareStyle={{ backgroundColor: activeTheme.dark }}
                 customLightSquareStyle={{ backgroundColor: activeTheme.light }}
               />
