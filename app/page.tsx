@@ -485,15 +485,24 @@ export default function Home() {
     }
   }, [game, userOrientation, makeAMove, clearPremoves]);
 
-  // Flexible Dragging Function for Chessboard
+  // Flexible Dragging Function for Chessboard (Supports Premove)
   const isDraggablePiece = useCallback(({ piece }: { piece: string }) => {
     if (isSpectator || gameStatus !== "live") return false;
     const pieceColor = piece[0]; // 'w' կամ 'b'
-    return (
+    const isMyColorPiece =
       (userOrientation === "white" && pieceColor === "w") ||
-      (userOrientation === "black" && pieceColor === "b")
-    );
-  }, [isSpectator, gameStatus, userOrientation]);
+      (userOrientation === "black" && pieceColor === "b");
+
+    if (isMyColorPiece) return true;
+
+    // Եթե մեր հերթը չէ, թույլ ենք տալիս բռնել քարը premove անելու նպատակով
+    const currentTurn = game.turn();
+    const isMyTurn =
+      (currentTurn === "w" && userOrientation === "white") ||
+      (currentTurn === "b" && userOrientation === "black");
+
+    return !isMyTurn;
+  }, [isSpectator, gameStatus, userOrientation, game]);
 
   // Handle Move Attempt (Regular & Multiple Premoves)
   const handleMoveAttempt = useCallback((sourceSquare: string, targetSquare: string): boolean => {
@@ -514,6 +523,7 @@ export default function Home() {
       (turn === "w" && userOrientation === "white") ||
       (turn === "b" && userOrientation === "black");
 
+    // Եթե մեր հերթն է, կատարում ենք բուն քայլը
     if (isMyTurn) {
       clearPremoves();
       const res = makeAMove({
@@ -524,6 +534,7 @@ export default function Home() {
       return Boolean(res);
     }
 
+    // Հակառակորդի հերթին՝ ավելացնում ենք որպես premove
     try {
       const tempBoard = new Chess(game.fen());
       premovesRef.current.forEach((p) => {
@@ -545,6 +556,7 @@ export default function Home() {
         premovesRef.current = updatedPremoves;
         setPremoves(updatedPremoves);
 
+        // Թարմացնում ենք էկրանի վիզուալ վիճակը
         const boardCopy = new Chess(game.fen());
         for (const p of updatedPremoves) {
           try {
