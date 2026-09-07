@@ -87,7 +87,7 @@ export default function Home() {
   const premovesRef = useRef<{ from: string; to: string }[]>([]);
   const [displayFen, setDisplayFen] = useState<string>(game.fen());
 
-  // Premove styling and error state (Chess.com style)
+  // Premove styling and error state
   const [premoveStyles, setPremoveStyles] = useState<{ [square: string]: React.CSSProperties }>({});
   const [invalidSquare, setInvalidSquare] = useState<string | null>(null);
 
@@ -506,72 +506,7 @@ export default function Home() {
     }
   }, [game, userOrientation, makeAMove, clearPremoves]);
 
-  // Handle Click-to-Move Attempt (Replaces drag-and-drop)
-  const handleMoveAttempt = useCallback((sourceSquare: string, targetSquare: string): boolean => {
-    if (isSpectator || gameStatus !== "live") return false;
-
-    const turn = game.turn();
-    const isMyTurn =
-      (turn === "w" && userOrientation === "white") ||
-      (turn === "b" && userOrientation === "black");
-
-    // 1. Regular Move (When it's my turn)
-    if (isMyTurn) {
-      clearPremoves();
-      setInvalidSquare(null);
-      const res = makeAMove({
-        from: sourceSquare,
-        to: targetSquare,
-        promotion: "q",
-      });
-      return Boolean(res);
-    }
-
-    // 2. Opponent's Turn: Premove Check
-    try {
-      const tempBoard = new Chess(game.fen());
-      for (const p of premovesRef.current) {
-        try {
-          tempBoard.move({ from: p.from, to: p.to, promotion: "q" });
-        } catch {}
-      }
-
-      const moveResult = tempBoard.move({
-        from: sourceSquare,
-        to: targetSquare,
-        promotion: "q",
-      });
-
-      if (moveResult) {
-        const newPremove = { from: sourceSquare, to: targetSquare };
-        const updatedPremoves = [...premovesRef.current, newPremove];
-
-        premovesRef.current = updatedPremoves;
-        setPremoves(updatedPremoves);
-        setDisplayFen(tempBoard.fen());
-
-        const styles: { [key: string]: React.CSSProperties } = {};
-        updatedPremoves.forEach((p) => {
-          styles[p.from] = { backgroundColor: "rgba(255, 255, 0, 0.4)" };
-          styles[p.to] = { backgroundColor: "rgba(255, 255, 0, 0.4)" };
-        });
-        setPremoveStyles(styles);
-        setInvalidSquare(null);
-
-        return true;
-      } else {
-        setInvalidSquare(targetSquare);
-        setTimeout(() => setInvalidSquare(null), 500);
-      }
-    } catch (e) {
-      setInvalidSquare(targetSquare);
-      setTimeout(() => setInvalidSquare(null), 500);
-    }
-
-    return false;
-  }, [game, gameStatus, isSpectator, userOrientation, makeAMove, clearPremoves]);
-
-  // Square Click Handler for Click-to-Move
+  // Square Click Handler for Click-to-Move & Multiple Premoves
   const handleSquareClick = useCallback((square: string) => {
     if (isSpectator || gameStatus !== "live") return;
 
@@ -581,9 +516,8 @@ export default function Home() {
       (turn === "w" && userOrientation === "white") ||
       (turn === "b" && userOrientation === "black");
 
-    // Եթե ոչ մի վանդակ նախապես ընտրված չէր
+    // Եթե դեռ ոչ մի վանդակ ընտրված չէ
     if (!selectedSquare) {
-      // իմ հերթին պետք է սեղմեմ իմ ֆիգուրի վրա, իսկ հակառակորդի հերթին (premove-ի համար)՝ կամայական իմ ֆիգուրի վրա
       if (piece) {
         const isMyPiece =
           (userOrientation === "white" && piece.color === "w") ||
@@ -596,14 +530,13 @@ export default function Home() {
       return;
     }
 
-    // Եթե արդեն ընտրված վանդակ կա
+    // Եթե արդեն ընտրված վանդակ կա և սեղմել ենք նույնի վրա՝ հանում ենք ընտրությունը
     if (selectedSquare === square) {
-      // Եթե սեղմել է նույն վանդակի վրա, հանում ենք ընտրությունը
       setSelectedSquare(null);
       return;
     }
 
-    // Եթե սեղմել է մեկ այլ իմ ֆիգուրի վրա, փոխում ենք ընտրվածը նորով
+    // Եթե սեղմել ենք մեկ այլ իմ ֆիգուրի վրա, փոխում ենք ընտրվածը նորով
     if (piece) {
       const isMyPiece =
         (userOrientation === "white" && piece.color === "w") ||
@@ -615,10 +548,59 @@ export default function Home() {
       }
     }
 
-    // Եթե սեղմել է թիրախային վանդակի վրա, կատարում ենք քայլը (կամ premove)
-    const success = handleMoveAttempt(selectedSquare, square);
+    // Եթե սեղմել ենք թիրախային վանդակի վրա՝
+    if (isMyTurn) {
+      // Իմ հերթին է -> անմիջապես կատարում ենք քայլը և մաքրում հին premove-ները
+      clearPremoves();
+      setInvalidSquare(null);
+      makeAMove({
+        from: selectedSquare,
+        to: square,
+        promotion: "q",
+      });
+    } else {
+      // Հակառակորդի հերթն է -> Գրանցում ենք որպես Premove (կարող ենք մի քանի հատ իրար հետևից)
+      try {
+        const tempBoard = new Chess(game.fen());
+        for (const p of premovesRef.current) {
+          try {
+            tempBoard.move({ from: p.from, to: p.to, promotion: "q" });
+          } catch {}
+        }
+
+        const moveResult = tempBoard.move({
+          from: selectedSquare,
+          to: square,
+          promotion: "q",
+        });
+
+        if (moveResult) {
+          const newPremove = { from: selectedSquare, to: square };
+          const updatedPremoves = [...premovesRef.current, newPremove];
+
+          premovesRef.current = updatedPremoves;
+          setPremoves(updatedPremoves);
+          setDisplayFen(tempBoard.fen());
+
+          const styles: { [key: string]: React.CSSProperties } = {};
+          updatedPremoves.forEach((p) => {
+            styles[p.from] = { backgroundColor: "rgba(255, 255, 0, 0.4)" };
+            styles[p.to] = { backgroundColor: "rgba(255, 255, 0, 0.4)" };
+          });
+          setPremoveStyles(styles);
+          setInvalidSquare(null);
+        } else {
+          setInvalidSquare(square);
+          setTimeout(() => setInvalidSquare(null), 500);
+        }
+      } catch (e) {
+        setInvalidSquare(square);
+        setTimeout(() => setInvalidSquare(null), 500);
+      }
+    }
+
     setSelectedSquare(null);
-  }, [selectedSquare, game, userOrientation, isSpectator, gameStatus, handleMoveAttempt]);
+  }, [selectedSquare, game, userOrientation, isSpectator, gameStatus, makeAMove, clearPremoves]);
 
   // Realtime Subscriptions & Game State Sync
   useEffect(() => {
@@ -1495,7 +1477,7 @@ export default function Home() {
               </button>
             </div>
 
-            {/* Chessboard with Click to Move & Click to Premove */}
+            {/* Chessboard with Click to Move & Multiple Premoves */}
             <div className="w-full max-w-[500px] aspect-square rounded-2xl overflow-hidden shadow-2xl border border-slate-800">
               <Chessboard
                 position={displayFen}
