@@ -84,6 +84,10 @@ export default function Home() {
   const premovesRef = useRef<{ from: string; to: string }[]>([]);
   const [displayFen, setDisplayFen] = useState<string>(game.fen());
 
+  // Premove styling and error state (Chess.com style)
+  const [premoveStyles, setPremoveStyles] = useState<{ [square: string]: React.CSSProperties }>({});
+  const [invalidSquare, setInvalidSquare] = useState<string | null>(null);
+
   // Sound Settings State
   const [isMuted, setIsMuted] = useState(false);
 
@@ -121,6 +125,7 @@ export default function Home() {
   const clearPremoves = useCallback(() => {
     premovesRef.current = [];
     setPremoves([]);
+    setPremoveStyles({});
   }, []);
 
   // Unlock Web Audio API context on first user interaction
@@ -462,6 +467,17 @@ export default function Home() {
       premovesRef.current = remainingPremoves;
       setPremoves(remainingPremoves);
 
+      if (remainingPremoves.length === 0) {
+        setPremoveStyles({});
+      } else {
+        const styles: { [key: string]: React.CSSProperties } = {};
+        remainingPremoves.forEach((p) => {
+          styles[p.from] = { backgroundColor: "rgba(255, 255, 0, 0.4)" };
+          styles[p.to] = { backgroundColor: "rgba(255, 255, 0, 0.4)" };
+        });
+        setPremoveStyles(styles);
+      }
+
       const success = makeAMove({
         from: nextPremove.from,
         to: nextPremove.to,
@@ -488,7 +504,7 @@ export default function Home() {
   // Flexible Dragging Function for Chessboard (Supports Premove)
   const isDraggablePiece = useCallback(({ piece }: { piece: string }) => {
     if (isSpectator || gameStatus !== "live") return false;
-    const pieceColor = piece[0]; // 'w' կամ 'b'
+    const pieceColor = piece[0];
     const isMyColorPiece =
       (userOrientation === "white" && pieceColor === "w") ||
       (userOrientation === "black" && pieceColor === "b");
@@ -496,7 +512,7 @@ export default function Home() {
     return isMyColorPiece;
   }, [isSpectator, gameStatus, userOrientation]);
 
-  // Handle Move Attempt (Regular & Multiple Premoves)
+  // Handle Move Attempt with Chess.com style Premoves (Yellow & Red flash)
   const handleMoveAttempt = useCallback((sourceSquare: string, targetSquare: string): boolean => {
     if (isSpectator || gameStatus !== "live") return false;
 
@@ -515,9 +531,10 @@ export default function Home() {
       (turn === "w" && userOrientation === "white") ||
       (turn === "b" && userOrientation === "black");
 
-    // 1. Սովորական քայլ (երբ մեր հերթն է)
+    // 1. Regular Move (When it's my turn)
     if (isMyTurn) {
       clearPremoves();
+      setInvalidSquare(null);
       const res = makeAMove({
         from: sourceSquare,
         to: targetSquare,
@@ -526,10 +543,9 @@ export default function Home() {
       return Boolean(res);
     }
 
-    // 2. Հակառակորդի հերթին՝ Premove
+    // 2. Opponent's Turn: Premove
     try {
       const tempBoard = new Chess(displayFen);
-      
       const moveResult = tempBoard.move({
         from: sourceSquare,
         to: targetSquare,
@@ -542,12 +558,26 @@ export default function Home() {
 
         premovesRef.current = updatedPremoves;
         setPremoves(updatedPremoves);
-
         setDisplayFen(tempBoard.fen());
-        return true; 
+
+        // Chess.com style yellow highlights for premoves
+        const styles: { [key: string]: React.CSSProperties } = {};
+        updatedPremoves.forEach((p) => {
+          styles[p.from] = { backgroundColor: "rgba(255, 255, 0, 0.4)" };
+          styles[p.to] = { backgroundColor: "rgba(255, 255, 0, 0.4)" };
+        });
+        setPremoveStyles(styles);
+        setInvalidSquare(null);
+
+        return true;
+      } else {
+        // Flash red if illegal premove target
+        setInvalidSquare(targetSquare);
+        setTimeout(() => setInvalidSquare(null), 500);
       }
     } catch (e) {
-      console.error("Premove error:", e);
+      setInvalidSquare(targetSquare);
+      setTimeout(() => setInvalidSquare(null), 500);
     }
 
     return false;
@@ -1424,7 +1454,7 @@ export default function Home() {
               </button>
             </div>
 
-            {/* Chessboard */}
+            {/* Chessboard with Chess.com Style Premoves & Invalid Move Flash */}
             <div className="w-full max-w-[500px] aspect-square rounded-2xl overflow-hidden shadow-2xl border border-slate-800">
               <Chessboard
                 position={displayFen}
@@ -1434,6 +1464,12 @@ export default function Home() {
                 arePiecesDraggable={true}
                 customDarkSquareStyle={{ backgroundColor: activeTheme.dark }}
                 customLightSquareStyle={{ backgroundColor: activeTheme.light }}
+                customSquareStyles={{
+                  ...premoveStyles,
+                  ...(invalidSquare
+                    ? { [invalidSquare]: { backgroundColor: "rgba(255, 0, 0, 0.6)" } }
+                    : {}),
+                }}
               />
             </div>
 
