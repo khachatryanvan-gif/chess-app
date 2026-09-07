@@ -456,7 +456,7 @@ export default function Home() {
     return false;
   }, [game, whiteTime, blackTime, increment, currentChallenge?.id, userOrientation, triggerConfetti, profile?.id, fetchProfile, isMuted]);
 
-  // Multiple Premove Execution Effect
+  // Multiple Premove Execution Effect (with auto-clear if move becomes illegal)
   useEffect(() => {
     const currentTurn = game.turn();
     const isMyTurn =
@@ -466,22 +466,43 @@ export default function Home() {
     if (isMyTurn && premovesRef.current.length > 0) {
       const nextPremove = premovesRef.current[0];
       
-      premovesRef.current = premovesRef.current.slice(1);
-      setPremoves([...premovesRef.current]);
+      // փորձենք կատարել պրեմովը ստուգելով հնարավորությունը
+      const tempGame = new Chess(game.fen());
+      try {
+        const moveResult = tempGame.move({
+          from: nextPremove.from,
+          to: nextPremove.to,
+          promotion: "q",
+        });
 
-      if (premovesRef.current.length === 0) {
-        setPremoveStyles({});
+        if (moveResult) {
+          // Եթե քայլը վավեր է, հանում ենք շղթայից և կատարում
+          premovesRef.current = premovesRef.current.slice(1);
+          setPremoves([...premovesRef.current]);
+
+          if (premovesRef.current.length === 0) {
+            setPremoveStyles({});
+          }
+
+          makeAMove({
+            from: nextPremove.from,
+            to: nextPremove.to,
+            promotion: "q",
+          });
+        } else {
+          // Եթե քայլը անհնար է/անօրինական, մաքրում ենք ամբողջ շղթան
+          clearPremoves();
+          setDisplayFen(game.fen());
+        }
+      } catch {
+        // Սխալի դեպքում ևս մաքրում ենք շղթան
+        clearPremoves();
+        setDisplayFen(game.fen());
       }
-
-      makeAMove({
-        from: nextPremove.from,
-        to: nextPremove.to,
-        promotion: "q",
-      });
     } else if (premovesRef.current.length === 0) {
       setDisplayFen(game.fen());
     }
-  }, [game, userOrientation, makeAMove]);
+  }, [game, userOrientation, makeAMove, clearPremoves]);
 
   // Square Click Handler for Click-to-Move & Multiple Premoves
   const handleSquareClick = useCallback((square: string) => {
@@ -530,9 +551,10 @@ export default function Home() {
         promotion: "q",
       });
     } else {
-      // Uxxvats stugum: severy prevem anelis petq e stugi ir sephakan figuranery
+      // Պրեմովի ժամանակ ստուգում ենք, որ ընտրված քարը պատկանի խաղացողին (անկախ նրանից սպիտակ է, թե սև)
+      const playerColorChar = userOrientation === "white" ? "w" : "b";
       const selectedPiece = game.get(selectedSquare as Square);
-      const isMyColorPiece = selectedPiece && selectedPiece.color === (userOrientation === "white" ? "w" : "b");
+      const isMyColorPiece = selectedPiece && selectedPiece.color === playerColorChar;
 
       if (isMyColorPiece) {
         const newPremove = { from: selectedSquare, to: square };
