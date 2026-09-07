@@ -485,6 +485,18 @@ export default function Home() {
     }
   }, [game, userOrientation, makeAMove, clearPremoves]);
 
+  // Allow dragging pieces when it's your piece (even if it's opponent's turn for premoves)
+  const isDraggablePiece = useCallback(({ piece }: { piece: string }) => {
+    if (isSpectator || gameStatus !== "live") return false;
+
+    const pieceColor = piece[0]; // 'w' or 'b'
+    const isMyPiece =
+      (userOrientation === "white" && pieceColor === "w") ||
+      (userOrientation === "black" && pieceColor === "b");
+
+    return isMyPiece;
+  }, [isSpectator, gameStatus, userOrientation]);
+
   // Handle Move Attempt (Supports Regular & Multiple Premoves)
   const handleMoveAttempt = useCallback((sourceSquare: string, targetSquare: string): boolean => {
     if (isSpectator || gameStatus !== "live") return false;
@@ -494,7 +506,6 @@ export default function Home() {
       (turn === "w" && userOrientation === "white") ||
       (turn === "b" && userOrientation === "black");
 
-    // Եթե ձեր հերթն է՝ կատարում ենք նորմալ քայլ
     if (isMyTurn) {
       clearPremoves();
       const res = makeAMove({
@@ -505,10 +516,9 @@ export default function Home() {
       return Boolean(res);
     }
 
-    // Եթե ձեր հերթը չէ -> Ստուգում ենք՝ արդյոք ձեր խաղաքարն է
+    // Multiple Premove Logic
     const tempBoard = new Chess(game.fen());
     
-    // Հաշվի ենք առնում արդեն արված պրիմուվները
     premovesRef.current.forEach((p) => {
       try {
         tempBoard.move({ from: p.from, to: p.to, promotion: "q" });
@@ -516,43 +526,42 @@ export default function Home() {
     });
 
     const piece = tempBoard.get(sourceSquare as Square);
-    if (!piece) return false;
 
-    const isMyPiece =
-      (userOrientation === "white" && piece.color === "w") ||
-      (userOrientation === "black" && piece.color === "b");
+    if (piece) {
+      const isMyPiece =
+        (userOrientation === "white" && piece.color === "w") ||
+        (userOrientation === "black" && piece.color === "b");
 
-    if (!isMyPiece) return false;
+      if (isMyPiece) {
+        try {
+          const tempMoveCheck = new Chess(tempBoard.fen());
+          const moveResult = tempMoveCheck.move({
+            from: sourceSquare,
+            to: targetSquare,
+            promotion: "q",
+          });
 
-    // Ստուգում ենք՝ արդյոք այս պրիմուվը հնարավոր է տվյալ դիրքում
-    try {
-      const tempMoveCheck = new Chess(tempBoard.fen());
-      const moveResult = tempMoveCheck.move({
-        from: sourceSquare,
-        to: targetSquare,
-        promotion: "q",
-      });
+          if (moveResult) {
+            const newPremove = { from: sourceSquare, to: targetSquare };
+            const updatedPremoves = [...premovesRef.current, newPremove];
 
-      if (moveResult) {
-        const newPremove = { from: sourceSquare, to: targetSquare };
-        const updatedPremoves = [...premovesRef.current, newPremove];
+            premovesRef.current = updatedPremoves;
+            setPremoves(updatedPremoves);
 
-        premovesRef.current = updatedPremoves;
-        setPremoves(updatedPremoves);
-
-        // Թարմացնում ենք տախտակի վիզուալ վիճակը
-        const boardCopy = new Chess(game.fen());
-        for (const p of updatedPremoves) {
-          try {
-            boardCopy.move({ from: p.from, to: p.to, promotion: "q" });
-          } catch {}
+            const boardCopy = new Chess(game.fen());
+            for (const p of updatedPremoves) {
+              try {
+                boardCopy.move({ from: p.from, to: p.to, promotion: "q" });
+              } catch {}
+            }
+            
+            setDisplayFen(boardCopy.fen());
+            return true;
+          }
+        } catch (e) {
+          console.error("Multiple premove error:", e);
         }
-        
-        setDisplayFen(boardCopy.fen());
-        return true; // Վերադարձնում ենք true, որպեսզի ռեակտ-շախմատը թույլ տա քարը տեղափոխել
       }
-    } catch (e) {
-      console.error("Premove validation error:", e);
     }
 
     return false;
@@ -1434,6 +1443,7 @@ export default function Home() {
               <Chessboard
                 position={displayFen}
                 onPieceDrop={handleMoveAttempt}
+                isDraggablePiece={isDraggablePiece}
                 boardOrientation={userOrientation}
                 customDarkSquareStyle={{ backgroundColor: activeTheme.dark }}
                 customLightSquareStyle={{ backgroundColor: activeTheme.light }}
