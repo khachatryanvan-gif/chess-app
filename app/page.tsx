@@ -530,29 +530,35 @@ export default function Home() {
         promotion: "q",
       });
     } else {
-      const newPremove = { from: selectedSquare, to: square };
-      const updatedPremoves = [...premovesRef.current, newPremove];
-      
-      premovesRef.current = updatedPremoves;
-      setPremoves(updatedPremoves);
+      // Uxxvats stugum: severy prevem anelis petq e stugi ir sephakan figuranery
+      const selectedPiece = game.get(selectedSquare as Square);
+      const isMyColorPiece = selectedPiece && selectedPiece.color === (userOrientation === "white" ? "w" : "b");
 
-      try {
-        let tempBoard = new Chess(game.fen());
-        for (const p of updatedPremoves) {
-          tempBoard.move({ from: p.from, to: p.to, promotion: "q" });
+      if (isMyColorPiece) {
+        const newPremove = { from: selectedSquare, to: square };
+        const updatedPremoves = [...premovesRef.current, newPremove];
+        
+        premovesRef.current = updatedPremoves;
+        setPremoves(updatedPremoves);
+
+        try {
+          let tempBoard = new Chess(game.fen());
+          for (const p of updatedPremoves) {
+            tempBoard.move({ from: p.from, to: p.to, promotion: "q" });
+          }
+          setDisplayFen(tempBoard.fen());
+        } catch {
+          setDisplayFen(game.fen());
         }
-        setDisplayFen(tempBoard.fen());
-      } catch {
-        setDisplayFen(game.fen());
-      }
 
-      const newStyles: { [square: string]: React.CSSProperties } = {};
-      updatedPremoves.forEach((p, index) => {
-        const color = index % 2 === 0 ? "rgba(255, 255, 0, 0.4)" : "rgba(255, 165, 0, 0.4)";
-        newStyles[p.from] = { backgroundColor: color };
-        newStyles[p.to] = { backgroundColor: color };
-      });
-      setPremoveStyles(newStyles);
+        const newStyles: { [square: string]: React.CSSProperties } = {};
+        updatedPremoves.forEach((p, index) => {
+          const color = index % 2 === 0 ? "rgba(255, 255, 0, 0.4)" : "rgba(255, 165, 0, 0.4)";
+          newStyles[p.from] = { backgroundColor: color };
+          newStyles[p.to] = { backgroundColor: color };
+        });
+        setPremoveStyles(newStyles);
+      }
     }
 
     setSelectedSquare(null);
@@ -1095,7 +1101,6 @@ export default function Home() {
     setSelectedSquare(null);
     setDisplayFen(newGame.fen());
 
-    // Safe extraction of history array
     const loadedGameForHistory = new Chess();
     let historyArr: string[] = [];
     if (existingGame.pgn) {
