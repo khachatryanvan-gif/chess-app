@@ -1530,7 +1530,7 @@ export default function Home() {
               <LiveChat
                 gameId={currentChallenge.id}
                 username={profile?.username || "Guest"}
-              }
+             
             />
           </div>
         </div>
