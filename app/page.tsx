@@ -456,7 +456,7 @@ export default function Home() {
     return false;
   }, [game, whiteTime, blackTime, increment, currentChallenge?.id, userOrientation, triggerConfetti, profile?.id, fetchProfile, isMuted]);
 
-  // Premove Execution Effect
+  // Premove Execution Effect (Բարելավված տարբերակ՝ անկախ գույնից)
   useEffect(() => {
     const currentTurn = game.turn();
     const isMyTurn =
@@ -467,11 +467,30 @@ export default function Home() {
       const nextPremove = premovesRef.current[0];
       clearPremoves();
 
-      makeAMove({
-        from: nextPremove.from,
-        to: nextPremove.to,
-        promotion: "q",
-      });
+      // Ստուգում ենք՝ արդյոք premove-ը օրինական է տվյալ դիրքում
+      try {
+        const testGame = new Chess(game.fen());
+        const moveResult = testGame.move({
+          from: nextPremove.from,
+          to: nextPremove.to,
+          promotion: "q",
+        });
+
+        if (moveResult) {
+          makeAMove({
+            from: nextPremove.from,
+            to: nextPremove.to,
+            promotion: "q",
+          });
+        } else {
+          // Եթե քայլը օրինական չէր, պարզապես մաքրում ենք առանց սխալի
+          clearPremoves();
+          setDisplayFen(game.fen());
+        }
+      } catch {
+        clearPremoves();
+        setDisplayFen(game.fen());
+      }
     } else if (premovesRef.current.length === 0) {
       setDisplayFen(game.fen());
     }
@@ -528,7 +547,7 @@ export default function Home() {
         promotion: "q",
       });
     } else {
-      // Հակառակորդի հերթն է -> Սահմանում ենք որպես Premove առանց սխալի հաղորդագրությունների
+      // Հակառակորդի հերթն է -> Սահմանում ենք որպես Premove
       const newPremove = { from: selectedSquare, to: square };
       premovesRef.current = [newPremove];
       setPremoves([newPremove]);
