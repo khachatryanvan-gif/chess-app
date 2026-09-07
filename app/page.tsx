@@ -493,16 +493,8 @@ export default function Home() {
       (userOrientation === "white" && pieceColor === "w") ||
       (userOrientation === "black" && pieceColor === "b");
 
-    if (isMyColorPiece) return true;
-
-    // Եթե մեր հերթը չէ, թույլ ենք տալիս բռնել քարը premove անելու նպատակով
-    const currentTurn = game.turn();
-    const isMyTurn =
-      (currentTurn === "w" && userOrientation === "white") ||
-      (currentTurn === "b" && userOrientation === "black");
-
-    return !isMyTurn;
-  }, [isSpectator, gameStatus, userOrientation, game]);
+    return isMyColorPiece;
+  }, [isSpectator, gameStatus, userOrientation]);
 
   // Handle Move Attempt (Regular & Multiple Premoves)
   const handleMoveAttempt = useCallback((sourceSquare: string, targetSquare: string): boolean => {
@@ -523,7 +515,7 @@ export default function Home() {
       (turn === "w" && userOrientation === "white") ||
       (turn === "b" && userOrientation === "black");
 
-    // Եթե մեր հերթն է, կատարում ենք բուն քայլը
+    // Սովորական քայլ (երբ մեր հերթն է)
     if (isMyTurn) {
       clearPremoves();
       const res = makeAMove({
@@ -534,7 +526,7 @@ export default function Home() {
       return Boolean(res);
     }
 
-    // Հակառակորդի հերթին՝ ավելացնում ենք որպես premove
+    // Հակառակորդի հերթին՝ ավելացնում ենք որպես premove[cite: 1]
     try {
       const tempBoard = new Chess(game.fen());
       premovesRef.current.forEach((p) => {
@@ -556,7 +548,6 @@ export default function Home() {
         premovesRef.current = updatedPremoves;
         setPremoves(updatedPremoves);
 
-        // Թարմացնում ենք էկրանի վիզուալ վիճակը
         const boardCopy = new Chess(game.fen());
         for (const p of updatedPremoves) {
           try {
@@ -564,7 +555,7 @@ export default function Home() {
           } catch {}
         }
         setDisplayFen(boardCopy.fen());
-        return true;
+        return true; // Թույլ է տալիս քարին մնալ նոր դիրքում[cite: 1]
       }
     } catch (e) {
       console.error("Premove error:", e);
