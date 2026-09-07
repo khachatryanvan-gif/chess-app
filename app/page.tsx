@@ -82,14 +82,11 @@ export default function Home() {
   // Click to Move State
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
 
-  // Multiple Premove States & Refs
+  // Premove State & Ref
   const [premoves, setPremoves] = useState<{ from: string; to: string }[]>([]);
   const premovesRef = useRef<{ from: string; to: string }[]>([]);
   const [displayFen, setDisplayFen] = useState<string>(game.fen());
-
-  // Premove styling and error state
   const [premoveStyles, setPremoveStyles] = useState<{ [square: string]: React.CSSProperties }>({});
-  const [invalidSquare, setInvalidSquare] = useState<string | null>(null);
 
   // Sound Settings State
   const [isMuted, setIsMuted] = useState(false);
@@ -459,7 +456,7 @@ export default function Home() {
     return false;
   }, [game, whiteTime, blackTime, increment, currentChallenge?.id, userOrientation, triggerConfetti, profile?.id, fetchProfile, isMuted]);
 
-  // Multiple Premove Execution Effect (Զտված և շտկված)
+  // Premove Execution Effect
   useEffect(() => {
     const currentTurn = game.turn();
     const isMyTurn =
@@ -468,46 +465,19 @@ export default function Home() {
 
     if (isMyTurn && premovesRef.current.length > 0) {
       const nextPremove = premovesRef.current[0];
-      const remainingPremoves = premovesRef.current.slice(1);
-      
-      premovesRef.current = remainingPremoves;
-      setPremoves(remainingPremoves);
+      clearPremoves();
 
-      if (remainingPremoves.length === 0) {
-        setPremoveStyles({});
-      } else {
-        const styles: { [key: string]: React.CSSProperties } = {};
-        remainingPremoves.forEach((p) => {
-          styles[p.from] = { backgroundColor: "rgba(255, 255, 0, 0.4)" };
-          styles[p.to] = { backgroundColor: "rgba(255, 255, 0, 0.4)" };
-        });
-        setPremoveStyles(styles);
-      }
-
-      const success = makeAMove({
+      makeAMove({
         from: nextPremove.from,
         to: nextPremove.to,
         promotion: "q",
       });
-
-      if (!success) {
-        clearPremoves();
-        setDisplayFen(game.fen());
-      } else if (remainingPremoves.length > 0) {
-        const boardCopy = new Chess(game.fen());
-        for (const p of remainingPremoves) {
-          try {
-            boardCopy.move({ from: p.from, to: p.to, promotion: "q" });
-          } catch {}
-        }
-        setDisplayFen(boardCopy.fen());
-      }
     } else if (premovesRef.current.length === 0) {
       setDisplayFen(game.fen());
     }
   }, [game, userOrientation, makeAMove, clearPremoves]);
 
-  // Square Click Handler for Click-to-Move & Multiple Premoves
+  // Square Click Handler for Click-to-Move & Premoves
   const handleSquareClick = useCallback((square: string) => {
     if (isSpectator || gameStatus !== "live") return;
 
@@ -531,13 +501,13 @@ export default function Home() {
       return;
     }
 
-    // Եթե արդեն ընտրված վանդակ կա և սեղմել ենք նույնի վրա՝ հանում ենք ընտրությունը
+    // Եթե սեղմել ենք նույն վանդակի վրա՝ հանում ենք ընտրությունը
     if (selectedSquare === square) {
       setSelectedSquare(null);
       return;
     }
 
-    // Եթե սեղմել ենք մեկ այլ իմ ֆիգուրի վրա, փոխում ենք ընտրվածը նորով
+    // Եթե սեղմել ենք մեկ այլ իմ ֆիգուրի վրա՝ փոխում ենք ընտրությունը
     if (piece) {
       const isMyPiece =
         (userOrientation === "white" && piece.color === "w") ||
@@ -549,54 +519,33 @@ export default function Home() {
       }
     }
 
-    // Եթե սեղմել ենք թիրախային վանդակի վրա՝
+    // Քայլի կամ Premove-ի կատարում
     if (isMyTurn) {
       clearPremoves();
-      setInvalidSquare(null);
       makeAMove({
         from: selectedSquare,
         to: square,
         promotion: "q",
       });
     } else {
-      // Հակառակորդի հերթն է -> Գրանցում ենք որպես Premove
+      // Հակառակորդի հերթն է -> Սահմանում ենք որպես Premove առանց սխալի հաղորդագրությունների
+      const newPremove = { from: selectedSquare, to: square };
+      premovesRef.current = [newPremove];
+      setPremoves([newPremove]);
+
+      // Ցույց տալ տախտակը premove-ի վիճակով
       try {
         const tempBoard = new Chess(game.fen());
-        for (const p of premovesRef.current) {
-          try {
-            tempBoard.move({ from: p.from, to: p.to, promotion: "q" });
-          } catch {}
-        }
-
-        const moveResult = tempBoard.move({
-          from: selectedSquare,
-          to: square,
-          promotion: "q",
-        });
-
-        if (moveResult) {
-          const newPremove = { from: selectedSquare, to: square };
-          const updatedPremoves = [...premovesRef.current, newPremove];
-
-          premovesRef.current = updatedPremoves;
-          setPremoves(updatedPremoves);
-          setDisplayFen(tempBoard.fen());
-
-          const styles: { [key: string]: React.CSSProperties } = {};
-          updatedPremoves.forEach((p) => {
-            styles[p.from] = { backgroundColor: "rgba(255, 255, 0, 0.4)" };
-            styles[p.to] = { backgroundColor: "rgba(255, 255, 0, 0.4)" };
-          });
-          setPremoveStyles(styles);
-          setInvalidSquare(null);
-        } else {
-          setInvalidSquare(square);
-          setTimeout(() => setInvalidSquare(null), 500);
-        }
-      } catch (e) {
-        setInvalidSquare(square);
-        setTimeout(() => setInvalidSquare(null), 500);
+        tempBoard.move({ from: selectedSquare, to: square, promotion: "q" });
+        setDisplayFen(tempBoard.fen());
+      } catch {
+        setDisplayFen(game.fen());
       }
+
+      setPremoveStyles({
+        [selectedSquare]: { backgroundColor: "rgba(255, 255, 0, 0.4)" },
+        [square]: { backgroundColor: "rgba(255, 255, 0, 0.4)" },
+      });
     }
 
     setSelectedSquare(null);
@@ -1477,7 +1426,7 @@ export default function Home() {
               </button>
             </div>
 
-            {/* Chessboard with Click to Move & Multiple Premoves */}
+            {/* Chessboard with Click to Move & Premove */}
             <div className="w-full max-w-[500px] aspect-square rounded-2xl overflow-hidden shadow-2xl border border-slate-800">
               <Chessboard
                 position={displayFen}
@@ -1490,9 +1439,6 @@ export default function Home() {
                   ...premoveStyles,
                   ...(selectedSquare
                     ? { [selectedSquare]: { backgroundColor: "rgba(255, 255, 0, 0.6)" } }
-                    : {}),
-                  ...(invalidSquare
-                    ? { [invalidSquare]: { backgroundColor: "rgba(255, 0, 0, 0.6)" } }
                     : {}),
                 }}
               />
