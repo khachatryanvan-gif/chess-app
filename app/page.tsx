@@ -382,14 +382,14 @@ export default function Home() {
   // Core makeAMove
   const makeAMove = useCallback((move: any): boolean => {
     try {
-      const gameCopy = new Chess();
-      gameCopy.loadPgn(game.pgn());
+      const gameCopy = new Chess(game.fen());
       const currentTurn = gameCopy.turn();
       const result = gameCopy.move(move);
 
       if (result) {
         setGame(gameCopy);
         setMoveList(gameCopy.history());
+        
         if (premovesRef.current.length === 0) {
           setDisplayFen(gameCopy.fen());
         }
@@ -452,7 +452,8 @@ export default function Home() {
 
         return true;
       }
-    } catch {
+    } catch (e) {
+      console.error("Move error:", e);
       return false;
     }
     return false;
