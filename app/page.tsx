@@ -82,7 +82,7 @@ export default function Home() {
   // Click to Move State
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
 
-  // Premove State & Ref
+  // Multiple Premove State & Ref
   const [premoves, setPremoves] = useState<{ from: string; to: string }[]>([]);
   const premovesRef = useRef<{ from: string; to: string }[]>([]);
   const [displayFen, setDisplayFen] = useState<string>(game.fen());
@@ -456,7 +456,7 @@ export default function Home() {
     return false;
   }, [game, whiteTime, blackTime, increment, currentChallenge?.id, userOrientation, triggerConfetti, profile?.id, fetchProfile, isMuted]);
 
-  // Premove Execution Effect (Բարելավված տարբերակ՝ անկախ գույնից)
+  // Multiple Premove Execution Effect
   useEffect(() => {
     const currentTurn = game.turn();
     const isMyTurn =
@@ -464,39 +464,29 @@ export default function Home() {
       (userOrientation === "black" && currentTurn === "b");
 
     if (isMyTurn && premovesRef.current.length > 0) {
+      // Վերցնում ենք հերթական առաջին premove-ը զանգվածից
       const nextPremove = premovesRef.current[0];
-      clearPremoves();
+      
+      // Հեռացնում ենք կատարված քայլը զանգվածից
+      premovesRef.current = premovesRef.current.slice(1);
+      setPremoves([...premovesRef.current]);
 
-      // Ստուգում ենք՝ արդյոք premove-ը օրինական է տվյալ դիրքում
-      try {
-        const testGame = new Chess(game.fen());
-        const moveResult = testGame.move({
-          from: nextPremove.from,
-          to: nextPremove.to,
-          promotion: "q",
-        });
-
-        if (moveResult) {
-          makeAMove({
-            from: nextPremove.from,
-            to: nextPremove.to,
-            promotion: "q",
-          });
-        } else {
-          // Եթե քայլը օրինական չէր, պարզապես մաքրում ենք առանց սխալի
-          clearPremoves();
-          setDisplayFen(game.fen());
-        }
-      } catch {
-        clearPremoves();
-        setDisplayFen(game.fen());
+      // Թարմացնում ենք ոճերը
+      if (premovesRef.current.length === 0) {
+        setPremoveStyles({});
       }
+
+      makeAMove({
+        from: nextPremove.from,
+        to: nextPremove.to,
+        promotion: "q",
+      });
     } else if (premovesRef.current.length === 0) {
       setDisplayFen(game.fen());
     }
-  }, [game, userOrientation, makeAMove, clearPremoves]);
+  }, [game, userOrientation, makeAMove]);
 
-  // Square Click Handler for Click-to-Move & Premoves
+  // Square Click Handler for Click-to-Move & Multiple Premoves
   const handleSquareClick = useCallback((square: string) => {
     if (isSpectator || gameStatus !== "live") return;
 
@@ -547,24 +537,33 @@ export default function Home() {
         promotion: "q",
       });
     } else {
-      // Հակառակորդի հերթն է -> Սահմանում ենք որպես Premove
+      // Հակառակորդի հերթն է -> Ավելացնում ենք նոր premoves զանգվածի մեջ (Multiple Premove)
       const newPremove = { from: selectedSquare, to: square };
-      premovesRef.current = [newPremove];
-      setPremoves([newPremove]);
+      const updatedPremoves = [...premovesRef.current, newPremove];
+      
+      premovesRef.current = updatedPremoves;
+      setPremoves(updatedPremoves);
 
-      // Ցույց տալ տախտակը premove-ի վիճակով
+      // Սիմուլյացիա ենք անում տախտակի վրա՝ հաշվի առնելով արդեն եղած բոլոր premove-ները
       try {
-        const tempBoard = new Chess(game.fen());
-        tempBoard.move({ from: selectedSquare, to: square, promotion: "q" });
+        let tempBoard = new Chess(game.fen());
+        for (const p of updatedPremoves) {
+          tempBoard.move({ from: p.from, to: p.to, promotion: "q" });
+        }
         setDisplayFen(tempBoard.fen());
       } catch {
+        // Եթե ինչ-որ քայլ անօրինական է, վերադարձնում ենք հիմնական դիրքը
         setDisplayFen(game.fen());
       }
 
-      setPremoveStyles({
-        [selectedSquare]: { backgroundColor: "rgba(255, 255, 0, 0.4)" },
-        [square]: { backgroundColor: "rgba(255, 255, 0, 0.4)" },
+      // Բոլոր հերթագրված premove վանդակները նշելու համար
+      const newStyles: { [square: string]: React.CSSProperties } = {};
+      updatedPremoves.forEach((p, index) => {
+        const color = index % 2 === 0 ? "rgba(255, 255, 0, 0.4)" : "rgba(255, 165, 0, 0.4)";
+        newStyles[p.from] = { backgroundColor: color };
+        newStyles[p.to] = { backgroundColor: color };
       });
+      setPremoveStyles(newStyles);
     }
 
     setSelectedSquare(null);
@@ -1106,7 +1105,7 @@ export default function Home() {
     clearPremoves();
     setSelectedSquare(null);
     setDisplayFen(newGame.fen());
-    setMoveList(newGame.history());
+    setMoveList(existingGame.pgn ? new Chess().loadPgn(existingGame.pgn) ? new Chess(existingGame.fen).history() : [] : []);
 
     const { incrementSeconds } = parseTimeControl(
       existingGame.time_control || "3+0"
@@ -1445,7 +1444,7 @@ export default function Home() {
               </button>
             </div>
 
-            {/* Chessboard with Click to Move & Premove */}
+            {/* Chessboard with Click to Move & Multiple Premoves */}
             <div className="w-full max-w-[500px] aspect-square rounded-2xl overflow-hidden shadow-2xl border border-slate-800">
               <Chessboard
                 position={displayFen}
@@ -1531,8 +1530,8 @@ export default function Home() {
               <LiveChat
                 gameId={currentChallenge.id}
                 username={profile?.username || "Guest"}
-              />
-            )}
+              }
+            />
           </div>
         </div>
       )}
