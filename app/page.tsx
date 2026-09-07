@@ -1094,7 +1094,25 @@ export default function Home() {
     clearPremoves();
     setSelectedSquare(null);
     setDisplayFen(newGame.fen());
-    setMoveList(existingGame.pgn ? new Chess().loadPgn(existingGame.pgn) ? new Chess(existingGame.fen).history() : [] : []);
+
+    // Safe extraction of history array
+    const loadedGameForHistory = new Chess();
+    let historyArr: string[] = [];
+    if (existingGame.pgn) {
+      try {
+        loadedGameForHistory.loadPgn(existingGame.pgn);
+        historyArr = loadedGameForHistory.history();
+      } catch {
+        if (existingGame.fen) {
+          loadedGameForHistory.load(existingGame.fen);
+          historyArr = loadedGameForHistory.history();
+        }
+      }
+    } else if (existingGame.fen) {
+      loadedGameForHistory.load(existingGame.fen);
+      historyArr = loadedGameForHistory.history();
+    }
+    setMoveList(historyArr);
 
     const { incrementSeconds } = parseTimeControl(
       existingGame.time_control || "3+0"
