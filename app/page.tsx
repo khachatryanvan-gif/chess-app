@@ -459,14 +459,14 @@ export default function Home() {
     return false;
   }, [game, whiteTime, blackTime, increment, currentChallenge?.id, userOrientation, triggerConfetti, profile?.id, fetchProfile, isMuted]);
 
-  // Multiple Premove Execution Effect
+  // Multiple Premove Execution Effect (Զտված և շտկված)
   useEffect(() => {
     const currentTurn = game.turn();
-    const isMyTurnCheck =
+    const isMyTurn =
       (userOrientation === "white" && currentTurn === "w") ||
       (userOrientation === "black" && currentTurn === "b");
 
-    if (isMyTurnCheck && premovesRef.current.length > 0) {
+    if (isMyTurn && premovesRef.current.length > 0) {
       const nextPremove = premovesRef.current[0];
       const remainingPremoves = premovesRef.current.slice(1);
       
@@ -551,7 +551,6 @@ export default function Home() {
 
     // Եթե սեղմել ենք թիրախային վանդակի վրա՝
     if (isMyTurn) {
-      // Իմ հերթին է -> անմիջապես կատարում ենք քայլը և մաքրում հին premove-ները
       clearPremoves();
       setInvalidSquare(null);
       makeAMove({
@@ -560,7 +559,7 @@ export default function Home() {
         promotion: "q",
       });
     } else {
-      // Հակառակորդի հերթն է -> Գրանցում ենք որպես Premove (կարող ենք մի քանի հատ իրար հետևից)
+      // Հակառակորդի հերթն է -> Գրանցում ենք որպես Premove
       try {
         const tempBoard = new Chess(game.fen());
         for (const p of premovesRef.current) {
@@ -785,7 +784,7 @@ export default function Home() {
           if (premovesRef.current.length === 0) {
             setDisplayFen(newGame.fen());
           }
-          setMoveList(updatedGame.history ? updatedGame.history : newGame.history());
+          setMoveList(newGame.history());
           setWhiteTime(calculatedWhite);
           setBlackTime(calculatedBlack);
           if (updatedGame.status) setGameStatus(updatedGame.status);
