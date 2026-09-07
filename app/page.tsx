@@ -515,7 +515,7 @@ export default function Home() {
       (turn === "w" && userOrientation === "white") ||
       (turn === "b" && userOrientation === "black");
 
-    // Սովորական քայլ (երբ մեր հերթն է)
+    // 1. Սովորական քայլ (երբ մեր հերթն է)
     if (isMyTurn) {
       clearPremoves();
       const res = makeAMove({
@@ -526,15 +526,10 @@ export default function Home() {
       return Boolean(res);
     }
 
-    // Հակառակորդի հերթին՝ ավելացնում ենք որպես premove[cite: 1]
+    // 2. Հակառակորդի հերթին՝ Premove
     try {
-      const tempBoard = new Chess(game.fen());
-      premovesRef.current.forEach((p) => {
-        try {
-          tempBoard.move({ from: p.from, to: p.to, promotion: "q" });
-        } catch {}
-      });
-
+      const tempBoard = new Chess(displayFen);
+      
       const moveResult = tempBoard.move({
         from: sourceSquare,
         to: targetSquare,
@@ -548,14 +543,8 @@ export default function Home() {
         premovesRef.current = updatedPremoves;
         setPremoves(updatedPremoves);
 
-        const boardCopy = new Chess(game.fen());
-        for (const p of updatedPremoves) {
-          try {
-            boardCopy.move({ from: p.from, to: p.to, promotion: "q" });
-          } catch {}
-        }
-        setDisplayFen(boardCopy.fen());
-        return true; // Թույլ է տալիս քարին մնալ նոր դիրքում[cite: 1]
+        setDisplayFen(tempBoard.fen());
+        return true; 
       }
     } catch (e) {
       console.error("Premove error:", e);
