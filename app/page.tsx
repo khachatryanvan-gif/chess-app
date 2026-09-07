@@ -79,6 +79,9 @@ export default function Home() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
 
+  // Click to Move State
+  const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
+
   // Multiple Premove States & Refs
   const [premoves, setPremoves] = useState<{ from: string; to: string }[]>([]);
   const premovesRef = useRef<{ from: string; to: string }[]>([]);
@@ -180,6 +183,7 @@ export default function Home() {
     const newG = new Chess();
     setGame(newG);
     clearPremoves();
+    setSelectedSquare(null);
     setDisplayFen(newG.fen());
     setMoveList([]);
     setGameStatus("waiting");
@@ -222,6 +226,7 @@ export default function Home() {
 
       setGame(restoredGame);
       clearPremoves();
+      setSelectedSquare(null);
       setDisplayFen(restoredGame.fen());
       setMoveList(restoredGame.history());
       setCurrentChallenge({
@@ -501,30 +506,9 @@ export default function Home() {
     }
   }, [game, userOrientation, makeAMove, clearPremoves]);
 
-  // Flexible Dragging Function for Chessboard (Supports Premove)
-  const isDraggablePiece = useCallback(({ piece }: { piece: string }) => {
-    if (isSpectator || gameStatus !== "live") return false;
-    const pieceColor = piece[0];
-    const isMyColorPiece =
-      (userOrientation === "white" && pieceColor === "w") ||
-      (userOrientation === "black" && pieceColor === "b");
-
-    return isMyColorPiece;
-  }, [isSpectator, gameStatus, userOrientation]);
-
-  // Handle Move Attempt with Chess.com style Premoves (Yellow & Red flash)
+  // Handle Click-to-Move Attempt (Replaces drag-and-drop)
   const handleMoveAttempt = useCallback((sourceSquare: string, targetSquare: string): boolean => {
     if (isSpectator || gameStatus !== "live") return false;
-
-    const boardCheck = new Chess(displayFen);
-    const piece = boardCheck.get(sourceSquare as Square);
-    if (!piece) return false;
-
-    const isMyPiece =
-      (userOrientation === "white" && piece.color === "w") ||
-      (userOrientation === "black" && piece.color === "b");
-
-    if (!isMyPiece) return false;
 
     const turn = game.turn();
     const isMyTurn =
@@ -543,9 +527,15 @@ export default function Home() {
       return Boolean(res);
     }
 
-    // 2. Opponent's Turn: Premove
+    // 2. Opponent's Turn: Premove Check
     try {
-      const tempBoard = new Chess(displayFen);
+      const tempBoard = new Chess(game.fen());
+      for (const p of premovesRef.current) {
+        try {
+          tempBoard.move({ from: p.from, to: p.to, promotion: "q" });
+        } catch {}
+      }
+
       const moveResult = tempBoard.move({
         from: sourceSquare,
         to: targetSquare,
@@ -560,7 +550,6 @@ export default function Home() {
         setPremoves(updatedPremoves);
         setDisplayFen(tempBoard.fen());
 
-        // Chess.com style yellow highlights for premoves
         const styles: { [key: string]: React.CSSProperties } = {};
         updatedPremoves.forEach((p) => {
           styles[p.from] = { backgroundColor: "rgba(255, 255, 0, 0.4)" };
@@ -571,7 +560,6 @@ export default function Home() {
 
         return true;
       } else {
-        // Flash red if illegal premove target
         setInvalidSquare(targetSquare);
         setTimeout(() => setInvalidSquare(null), 500);
       }
@@ -581,7 +569,56 @@ export default function Home() {
     }
 
     return false;
-  }, [game, gameStatus, isSpectator, userOrientation, makeAMove, clearPremoves, displayFen]);
+  }, [game, gameStatus, isSpectator, userOrientation, makeAMove, clearPremoves]);
+
+  // Square Click Handler for Click-to-Move
+  const handleSquareClick = useCallback((square: string) => {
+    if (isSpectator || gameStatus !== "live") return;
+
+    const piece = game.get(square as Square);
+    const turn = game.turn();
+    const isMyTurn =
+      (turn === "w" && userOrientation === "white") ||
+      (turn === "b" && userOrientation === "black");
+
+    // Եթե ոչ մի վանդակ նախապես ընտրված չէր
+    if (!selectedSquare) {
+      // իմ հերթին պետք է սեղմեմ իմ ֆիգուրի վրա, իսկ հակառակորդի հերթին (premove-ի համար)՝ կամայական իմ ֆիգուրի վրա
+      if (piece) {
+        const isMyPiece =
+          (userOrientation === "white" && piece.color === "w") ||
+          (userOrientation === "black" && piece.color === "b");
+
+        if (isMyPiece) {
+          setSelectedSquare(square);
+        }
+      }
+      return;
+    }
+
+    // Եթե արդեն ընտրված վանդակ կա
+    if (selectedSquare === square) {
+      // Եթե սեղմել է նույն վանդակի վրա, հանում ենք ընտրությունը
+      setSelectedSquare(null);
+      return;
+    }
+
+    // Եթե սեղմել է մեկ այլ իմ ֆիգուրի վրա, փոխում ենք ընտրվածը նորով
+    if (piece) {
+      const isMyPiece =
+        (userOrientation === "white" && piece.color === "w") ||
+        (userOrientation === "black" && piece.color === "b");
+
+      if (isMyPiece) {
+        setSelectedSquare(square);
+        return;
+      }
+    }
+
+    // Եթե սեղմել է թիրախային վանդակի վրա, կատարում ենք քայլը (կամ premove)
+    const success = handleMoveAttempt(selectedSquare, square);
+    setSelectedSquare(null);
+  }, [selectedSquare, game, userOrientation, isSpectator, gameStatus, handleMoveAttempt]);
 
   // Realtime Subscriptions & Game State Sync
   useEffect(() => {
@@ -707,6 +744,7 @@ export default function Home() {
       }
       setGame(newGame);
       clearPremoves();
+      setSelectedSquare(null);
       setDisplayFen(newGame.fen());
       setMoveList(newGame.history());
       setTakebackOfferedBy(null);
@@ -950,6 +988,7 @@ export default function Home() {
 
         setGame(gameCopy);
         clearPremoves();
+        setSelectedSquare(null);
         setDisplayFen(newFen);
         setMoveList(gameCopy.history());
 
@@ -1045,6 +1084,7 @@ export default function Home() {
 
       setGame(newGame);
       clearPremoves();
+      setSelectedSquare(null);
       setDisplayFen(newGame.fen());
       setMoveList([]);
       setCurrentChallenge(challenge);
@@ -1114,6 +1154,7 @@ export default function Home() {
 
     setGame(newGame);
     clearPremoves();
+    setSelectedSquare(null);
     setDisplayFen(newGame.fen());
     setMoveList(newGame.history());
 
@@ -1454,18 +1495,20 @@ export default function Home() {
               </button>
             </div>
 
-            {/* Chessboard with Chess.com Style Premoves & Invalid Move Flash */}
+            {/* Chessboard with Click to Move & Click to Premove */}
             <div className="w-full max-w-[500px] aspect-square rounded-2xl overflow-hidden shadow-2xl border border-slate-800">
               <Chessboard
                 position={displayFen}
-                onPieceDrop={handleMoveAttempt}
-                isDraggablePiece={isDraggablePiece}
+                onSquareClick={handleSquareClick}
                 boardOrientation={userOrientation}
-                arePiecesDraggable={true}
+                arePiecesDraggable={false}
                 customDarkSquareStyle={{ backgroundColor: activeTheme.dark }}
                 customLightSquareStyle={{ backgroundColor: activeTheme.light }}
                 customSquareStyles={{
                   ...premoveStyles,
+                  ...(selectedSquare
+                    ? { [selectedSquare]: { backgroundColor: "rgba(255, 255, 0, 0.6)" } }
+                    : {}),
                   ...(invalidSquare
                     ? { [invalidSquare]: { backgroundColor: "rgba(255, 0, 0, 0.6)" } }
                     : {}),
