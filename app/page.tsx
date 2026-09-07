@@ -456,7 +456,7 @@ export default function Home() {
     return false;
   }, [game, whiteTime, blackTime, increment, currentChallenge?.id, userOrientation, triggerConfetti, profile?.id, fetchProfile, isMuted]);
 
-  // Multiple Premove Execution Effect (with auto-clear if move becomes illegal)
+  // Multiple Premove Execution Effect
   useEffect(() => {
     const currentTurn = game.turn();
     const isMyTurn =
@@ -466,7 +466,6 @@ export default function Home() {
     if (isMyTurn && premovesRef.current.length > 0) {
       const nextPremove = premovesRef.current[0];
       
-      // փորձենք կատարել պրեմովը ստուգելով հնարավորությունը
       const tempGame = new Chess(game.fen());
       try {
         const moveResult = tempGame.move({
@@ -476,7 +475,6 @@ export default function Home() {
         });
 
         if (moveResult) {
-          // Եթե քայլը վավեր է, հանում ենք շղթայից և կատարում
           premovesRef.current = premovesRef.current.slice(1);
           setPremoves([...premovesRef.current]);
 
@@ -490,12 +488,10 @@ export default function Home() {
             promotion: "q",
           });
         } else {
-          // Եթե քայլը անհնար է/անօրինական, մաքրում ենք ամբողջ շղթան
           clearPremoves();
           setDisplayFen(game.fen());
         }
       } catch {
-        // Սխալի դեպքում ևս մաքրում ենք շղթան
         clearPremoves();
         setDisplayFen(game.fen());
       }
@@ -508,18 +504,27 @@ export default function Home() {
   const handleSquareClick = useCallback((square: string) => {
     if (isSpectator || gameStatus !== "live") return;
 
-    const piece = game.get(square as Square);
     const turn = game.turn();
     const isMyTurn =
       (turn === "w" && userOrientation === "white") ||
       (turn === "b" && userOrientation === "black");
 
+    const playerColorChar = userOrientation === "white" ? "w" : "b";
+
+    let currentVirtualBoard = new Chess(game.fen());
+    for (const p of premovesRef.current) {
+      try {
+        currentVirtualBoard.move({ from: p.from, to: p.to, promotion: "q" });
+      } catch {
+        break;
+      }
+    }
+
+    const piece = currentVirtualBoard.get(square as Square);
+
     if (!selectedSquare) {
       if (piece) {
-        const isMyPiece =
-          (userOrientation === "white" && piece.color === "w") ||
-          (userOrientation === "black" && piece.color === "b");
-
+        const isMyPiece = piece.color === playerColorChar;
         if (isMyPiece) {
           setSelectedSquare(square);
         }
@@ -533,10 +538,7 @@ export default function Home() {
     }
 
     if (piece) {
-      const isMyPiece =
-        (userOrientation === "white" && piece.color === "w") ||
-        (userOrientation === "black" && piece.color === "b");
-
+      const isMyPiece = piece.color === playerColorChar;
       if (isMyPiece) {
         setSelectedSquare(square);
         return;
@@ -551,35 +553,34 @@ export default function Home() {
         promotion: "q",
       });
     } else {
-      // Պրեմովի ժամանակ ստուգում ենք, որ ընտրված քարը պատկանի խաղացողին (անկախ նրանից սպիտակ է, թե սև)
-      const playerColorChar = userOrientation === "white" ? "w" : "b";
-      const selectedPiece = game.get(selectedSquare as Square);
+      const selectedPiece = currentVirtualBoard.get(selectedSquare as Square);
       const isMyColorPiece = selectedPiece && selectedPiece.color === playerColorChar;
 
       if (isMyColorPiece) {
-        const newPremove = { from: selectedSquare, to: square };
-        const updatedPremoves = [...premovesRef.current, newPremove];
+        const newPreferenceMove = { from: selectedSquare, to: square };
         
-        premovesRef.current = updatedPremoves;
-        setPremoves(updatedPremoves);
-
         try {
-          let tempBoard = new Chess(game.fen());
-          for (const p of updatedPremoves) {
-            tempBoard.move({ from: p.from, to: p.to, promotion: "q" });
-          }
-          setDisplayFen(tempBoard.fen());
-        } catch {
-          setDisplayFen(game.fen());
-        }
+          const testBoard = new Chess(currentVirtualBoard.fen());
+          const res = testBoard.move({ from: selectedSquare, to: square, promotion: "q" });
+          
+          if (res) {
+            const updatedPremoves = [...premovesRef.current, newPreferenceMove];
+            premovesRef.current = updatedPremoves;
+            setPremoves(updatedPremoves);
 
-        const newStyles: { [square: string]: React.CSSProperties } = {};
-        updatedPremoves.forEach((p, index) => {
-          const color = index % 2 === 0 ? "rgba(255, 255, 0, 0.4)" : "rgba(255, 165, 0, 0.4)";
-          newStyles[p.from] = { backgroundColor: color };
-          newStyles[p.to] = { backgroundColor: color };
-        });
-        setPremoveStyles(newStyles);
+            setDisplayFen(testBoard.fen());
+
+            const newStyles: { [square: string]: React.CSSProperties } = {};
+            updatedPremoves.forEach((p, index) => {
+              const color = index % 2 === 0 ? "rgba(255, 255, 0, 0.4)" : "rgba(255, 165, 0, 0.4)";
+              newStyles[p.from] = { backgroundColor: color };
+              newStyles[p.to] = { backgroundColor: color };
+            });
+            setPremoveStyles(newStyles);
+          }
+        } catch (e) {
+          console.error("Invalid premove attempt:", e);
+        }
       }
     }
 
