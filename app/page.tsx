@@ -3,7 +3,7 @@
 import LiveChat from "@/components/LiveChat";
 import { useState, useEffect, useRef, useCallback } from "react";
 import dynamic from "next/dynamic";
-import { Chess } from "chess.js";
+import { Chess, Square } from "chess.js";
 import { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import Lobby, { Challenge } from "@/components/Lobby";
@@ -79,6 +79,11 @@ export default function Home() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
 
+  // Multiple Premove States & Refs
+  const [premoves, setPremoves] = useState<{ from: string; to: string }[]>([]);
+  const premovesRef = useRef<{ from: string; to: string }[]>([]);
+  const [displayFen, setDisplayFen] = useState<string>(game.fen());
+
   // Sound Settings State
   const [isMuted, setIsMuted] = useState(false);
 
@@ -113,10 +118,15 @@ export default function Home() {
 
   const channelRef = useRef<RealtimeChannel | null>(null);
 
+  const clearPremoves = useCallback(() => {
+    premovesRef.current = [];
+    setPremoves([]);
+  }, []);
+
   // Unlock Web Audio API context on first user interaction
   useEffect(() => {
     const unlockAudio = () => {
-      soundManager.play("move", true); // play muted to unblock audio context
+      soundManager.play("move", true);
       window.removeEventListener("click", unlockAudio);
       window.removeEventListener("keydown", unlockAudio);
     };
@@ -164,6 +174,8 @@ export default function Home() {
     setCurrentChallenge(null);
     const newG = new Chess();
     setGame(newG);
+    clearPremoves();
+    setDisplayFen(newG.fen());
     setMoveList([]);
     setGameStatus("waiting");
     setDrawOfferedBy(null);
@@ -172,7 +184,7 @@ export default function Home() {
     if (profile?.id) {
       fetchProfile(profile.id);
     }
-  }, [profile?.id, fetchProfile]);
+  }, [profile?.id, fetchProfile, clearPremoves]);
 
   // Check for active game
   const checkForActiveGame = useCallback(async (username: string) => {
@@ -204,6 +216,8 @@ export default function Home() {
       );
 
       setGame(restoredGame);
+      clearPremoves();
+      setDisplayFen(restoredGame.fen());
       setMoveList(restoredGame.history());
       setCurrentChallenge({
         id: activeGame.id,
@@ -224,7 +238,7 @@ export default function Home() {
       setGameStatus(activeGame.status);
       setActiveTab("game");
     }
-  }, []);
+  }, [clearPremoves]);
 
   useEffect(() => {
     if (profile?.username) {
@@ -355,6 +369,192 @@ export default function Home() {
     ]
   );
 
+  // Core makeAMove
+  const makeAMove = useCallback((move: any): boolean => {
+    try {
+      const gameCopy = new Chess();
+      gameCopy.loadPgn(game.pgn());
+      const currentTurn = gameCopy.turn();
+      const result = gameCopy.move(move);
+
+      if (result) {
+        setGame(gameCopy);
+        setMoveList(gameCopy.history());
+        if (premovesRef.current.length === 0) {
+          setDisplayFen(gameCopy.fen());
+        }
+
+        if (gameCopy.inCheck()) {
+          soundManager.play("check", isMuted);
+        } else if (result.captured) {
+          soundManager.play("capture", isMuted);
+        } else {
+          soundManager.play("move", isMuted);
+        }
+
+        const newWhiteTime =
+          currentTurn === "w" ? whiteTime + increment : whiteTime;
+        const newBlackTime =
+          currentTurn === "b" ? blackTime + increment : blackTime;
+
+        supabase
+          .from("games")
+          .update({
+            fen: gameCopy.fen(),
+            pgn: gameCopy.pgn(),
+            turn: gameCopy.turn(),
+            white_time: newWhiteTime,
+            black_time: newBlackTime,
+            last_move_at: new Date().toISOString(),
+          })
+          .eq("id", currentChallenge?.id)
+          .then(({ error }) => {
+            if (error) console.error("Error updating game:", error);
+          });
+
+        if (gameCopy.isGameOver() && currentChallenge?.id) {
+          let winnerStr = "Draw";
+          if (gameCopy.isCheckmate()) {
+            winnerStr = currentTurn === "w" ? "White" : "Black";
+          }
+
+          const isWinner =
+            (winnerStr === "White" && userOrientation === "white") ||
+            (winnerStr === "Black" && userOrientation === "black");
+
+          soundManager.play("gameOver", isMuted);
+
+          if (isWinner) {
+            triggerConfetti();
+          }
+
+          supabase
+            .rpc("settle_game_payout", {
+              game_id_input: currentChallenge.id,
+              winner_input: winnerStr,
+            })
+            .then(async () => {
+              if (profile?.id) {
+                await fetchProfile(profile.id);
+              }
+            });
+        }
+
+        return true;
+      }
+    } catch {
+      return false;
+    }
+    return false;
+  }, [game, whiteTime, blackTime, increment, currentChallenge?.id, userOrientation, triggerConfetti, profile?.id, fetchProfile, isMuted]);
+
+  // Multiple Premove Execution Effect
+  useEffect(() => {
+    const currentTurn = game.turn();
+    const isMyTurnCheck =
+      (userOrientation === "white" && currentTurn === "w") ||
+      (userOrientation === "black" && currentTurn === "b");
+
+    if (isMyTurnCheck && premovesRef.current.length > 0) {
+      const nextPremove = premovesRef.current[0];
+      const remainingPremoves = premovesRef.current.slice(1);
+      
+      premovesRef.current = remainingPremoves;
+      setPremoves(remainingPremoves);
+
+      const success = makeAMove({
+        from: nextPremove.from,
+        to: nextPremove.to,
+        promotion: "q",
+      });
+
+      if (!success) {
+        clearPremoves();
+        setDisplayFen(game.fen());
+      } else if (remainingPremoves.length > 0) {
+        const boardCopy = new Chess(game.fen());
+        for (const p of remainingPremoves) {
+          try {
+            boardCopy.move({ from: p.from, to: p.to, promotion: "q" });
+          } catch {}
+        }
+        setDisplayFen(boardCopy.fen());
+      }
+    } else if (premovesRef.current.length === 0) {
+      setDisplayFen(game.fen());
+    }
+  }, [game, userOrientation, makeAMove, clearPremoves]);
+
+  // Handle Move Attempt (Supports Regular & Multiple Premoves)
+  const handleMoveAttempt = useCallback((sourceSquare: string, targetSquare: string): boolean => {
+    if (isSpectator || gameStatus !== "live") return false;
+
+    const turn = game.turn();
+    const isMyTurn =
+      (turn === "w" && userOrientation === "white") ||
+      (turn === "b" && userOrientation === "black");
+
+    if (isMyTurn) {
+      clearPremoves();
+      const res = makeAMove({
+        from: sourceSquare,
+        to: targetSquare,
+        promotion: "q",
+      });
+      return Boolean(res);
+    }
+
+    // Multiple Premove Logic
+    const tempBoard = new Chess(game.fen());
+    
+    premovesRef.current.forEach((p) => {
+      try {
+        tempBoard.move({ from: p.from, to: p.to, promotion: "q" });
+      } catch {}
+    });
+
+    const piece = tempBoard.get(sourceSquare as Square);
+
+    if (piece) {
+      const isMyPiece =
+        (userOrientation === "white" && piece.color === "w") ||
+        (userOrientation === "black" && piece.color === "b");
+
+      if (isMyPiece) {
+        try {
+          const tempMoveCheck = new Chess(tempBoard.fen());
+          const moveResult = tempMoveCheck.move({
+            from: sourceSquare,
+            to: targetSquare,
+            promotion: "q",
+          });
+
+          if (moveResult) {
+            const newPremove = { from: sourceSquare, to: targetSquare };
+            const updatedPremoves = [...premovesRef.current, newPremove];
+
+            premovesRef.current = updatedPremoves;
+            setPremoves(updatedPremoves);
+
+            const boardCopy = new Chess(game.fen());
+            for (const p of updatedPremoves) {
+              try {
+                boardCopy.move({ from: p.from, to: p.to, promotion: "q" });
+              } catch {}
+            }
+            
+            setDisplayFen(boardCopy.fen());
+            return true;
+          }
+        } catch (e) {
+          console.error("Multiple premove error:", e);
+        }
+      }
+    }
+
+    return false;
+  }, [game, gameStatus, isSpectator, userOrientation, makeAMove, clearPremoves]);
+
   // Realtime Subscriptions & Game State Sync
   useEffect(() => {
     if (!currentChallenge?.id) return;
@@ -403,6 +603,9 @@ export default function Home() {
         );
 
         setGame(newGame);
+        if (premovesRef.current.length === 0) {
+          setDisplayFen(newGame.fen());
+        }
         setMoveList(newGame.history());
         setWhiteTime(calculatedWhite);
         setBlackTime(calculatedBlack);
@@ -475,6 +678,8 @@ export default function Home() {
         newGame.load(payload.payload.fen);
       }
       setGame(newGame);
+      clearPremoves();
+      setDisplayFen(newGame.fen());
       setMoveList(newGame.history());
       setTakebackOfferedBy(null);
       setGameBanner({ type: "info", message: "Takeback accepted." });
@@ -528,6 +733,9 @@ export default function Home() {
           );
 
           setGame(newGame);
+          if (premovesRef.current.length === 0) {
+            setDisplayFen(newGame.fen());
+          }
           setMoveList(updatedGame.history ? updatedGame.history : newGame.history());
           setWhiteTime(calculatedWhite);
           setBlackTime(calculatedBlack);
@@ -564,6 +772,7 @@ export default function Home() {
     resetToLobby,
     userOrientation,
     triggerConfetti,
+    clearPremoves,
     isMuted,
   ]);
 
@@ -712,6 +921,8 @@ export default function Home() {
         const newPgn = gameCopy.pgn();
 
         setGame(gameCopy);
+        clearPremoves();
+        setDisplayFen(newFen);
         setMoveList(gameCopy.history());
 
         await supabase
@@ -738,97 +949,6 @@ export default function Home() {
       });
       setTakebackOfferedBy(null);
     }
-  };
-
-  const makeAMove = (move: any): boolean => {
-    try {
-      const gameCopy = new Chess();
-      gameCopy.loadPgn(game.pgn());
-      const currentTurn = gameCopy.turn();
-      const result = gameCopy.move(move);
-
-      if (result) {
-        setGame(gameCopy);
-        setMoveList(gameCopy.history());
-
-        // Play Sound Effect via soundManager
-        if (gameCopy.inCheck()) {
-          soundManager.play("check", isMuted);
-        } else if (result.captured) {
-          soundManager.play("capture", isMuted);
-        } else {
-          soundManager.play("move", isMuted);
-        }
-
-        const newWhiteTime =
-          currentTurn === "w" ? whiteTime + increment : whiteTime;
-        const newBlackTime =
-          currentTurn === "b" ? blackTime + increment : blackTime;
-
-        supabase
-          .from("games")
-          .update({
-            fen: gameCopy.fen(),
-            pgn: gameCopy.pgn(),
-            turn: gameCopy.turn(),
-            white_time: newWhiteTime,
-            black_time: newBlackTime,
-            last_move_at: new Date().toISOString(),
-          })
-          .eq("id", currentChallenge?.id)
-          .then(({ error }) => {
-            if (error) console.error("Error updating game:", error);
-          });
-
-        if (gameCopy.isGameOver() && currentChallenge?.id) {
-          let winnerStr = "Draw";
-          if (gameCopy.isCheckmate()) {
-            winnerStr = currentTurn === "w" ? "White" : "Black";
-          }
-
-          const isWinner =
-            (winnerStr === "White" && userOrientation === "white") ||
-            (winnerStr === "Black" && userOrientation === "black");
-
-          soundManager.play("gameOver", isMuted);
-
-          if (isWinner) {
-            triggerConfetti();
-          }
-
-          supabase
-            .rpc("settle_game_payout", {
-              game_id_input: currentChallenge.id,
-              winner_input: winnerStr,
-            })
-            .then(async () => {
-              if (profile?.id) {
-                await fetchProfile(profile.id);
-              }
-            });
-        }
-
-        return true;
-      }
-    } catch {
-      return false;
-    }
-    return false;
-  };
-
-  const onDrop = (sourceSquare: string, targetSquare: string): boolean => {
-    if (isSpectator || gameStatus !== "live") return false;
-
-    const turn = game.turn();
-
-    if (turn === "w" && userOrientation !== "white") return false;
-    if (turn === "b" && userOrientation !== "black") return false;
-
-    return makeAMove({
-      from: sourceSquare,
-      to: targetSquare,
-      promotion: "q",
-    });
   };
 
   const handleCreateGame = async (
@@ -896,6 +1016,8 @@ export default function Home() {
       };
 
       setGame(newGame);
+      clearPremoves();
+      setDisplayFen(newGame.fen());
       setMoveList([]);
       setCurrentChallenge(challenge);
       setIsSpectator(false);
@@ -963,6 +1085,8 @@ export default function Home() {
     }
 
     setGame(newGame);
+    clearPremoves();
+    setDisplayFen(newGame.fen());
     setMoveList(newGame.history());
 
     const { incrementSeconds } = parseTimeControl(
@@ -1305,8 +1429,8 @@ export default function Home() {
             {/* Chessboard */}
             <div className="w-full max-w-[500px] aspect-square rounded-2xl overflow-hidden shadow-2xl border border-slate-800">
               <Chessboard
-                position={game.fen()}
-                onPieceDrop={onDrop}
+                position={displayFen}
+                onPieceDrop={handleMoveAttempt}
                 boardOrientation={userOrientation}
                 customDarkSquareStyle={{ backgroundColor: activeTheme.dark }}
                 customLightSquareStyle={{ backgroundColor: activeTheme.light }}
