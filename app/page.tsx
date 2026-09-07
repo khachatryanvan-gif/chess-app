@@ -494,6 +494,7 @@ export default function Home() {
       (turn === "w" && userOrientation === "white") ||
       (turn === "b" && userOrientation === "black");
 
+    // Եթե ձեր հերթն է՝ կատարում ենք նորմալ քայլ
     if (isMyTurn) {
       clearPremoves();
       const res = makeAMove({
@@ -504,9 +505,10 @@ export default function Home() {
       return Boolean(res);
     }
 
-    // Multiple Premove Logic
+    // Եթե ձեր հերթը չէ -> Ստուգում ենք՝ արդյոք ձեր խաղաքարն է
     const tempBoard = new Chess(game.fen());
     
+    // Հաշվի ենք առնում արդեն արված պրիմուվները
     premovesRef.current.forEach((p) => {
       try {
         tempBoard.move({ from: p.from, to: p.to, promotion: "q" });
@@ -514,42 +516,43 @@ export default function Home() {
     });
 
     const piece = tempBoard.get(sourceSquare as Square);
+    if (!piece) return false;
 
-    if (piece) {
-      const isMyPiece =
-        (userOrientation === "white" && piece.color === "w") ||
-        (userOrientation === "black" && piece.color === "b");
+    const isMyPiece =
+      (userOrientation === "white" && piece.color === "w") ||
+      (userOrientation === "black" && piece.color === "b");
 
-      if (isMyPiece) {
-        try {
-          const tempMoveCheck = new Chess(tempBoard.fen());
-          const moveResult = tempMoveCheck.move({
-            from: sourceSquare,
-            to: targetSquare,
-            promotion: "q",
-          });
+    if (!isMyPiece) return false;
 
-          if (moveResult) {
-            const newPremove = { from: sourceSquare, to: targetSquare };
-            const updatedPremoves = [...premovesRef.current, newPremove];
+    // Ստուգում ենք՝ արդյոք այս պրիմուվը հնարավոր է տվյալ դիրքում
+    try {
+      const tempMoveCheck = new Chess(tempBoard.fen());
+      const moveResult = tempMoveCheck.move({
+        from: sourceSquare,
+        to: targetSquare,
+        promotion: "q",
+      });
 
-            premovesRef.current = updatedPremoves;
-            setPremoves(updatedPremoves);
+      if (moveResult) {
+        const newPremove = { from: sourceSquare, to: targetSquare };
+        const updatedPremoves = [...premovesRef.current, newPremove];
 
-            const boardCopy = new Chess(game.fen());
-            for (const p of updatedPremoves) {
-              try {
-                boardCopy.move({ from: p.from, to: p.to, promotion: "q" });
-              } catch {}
-            }
-            
-            setDisplayFen(boardCopy.fen());
-            return true;
-          }
-        } catch (e) {
-          console.error("Multiple premove error:", e);
+        premovesRef.current = updatedPremoves;
+        setPremoves(updatedPremoves);
+
+        // Թարմացնում ենք տախտակի վիզուալ վիճակը
+        const boardCopy = new Chess(game.fen());
+        for (const p of updatedPremoves) {
+          try {
+            boardCopy.move({ from: p.from, to: p.to, promotion: "q" });
+          } catch {}
         }
+        
+        setDisplayFen(boardCopy.fen());
+        return true; // Վերադարձնում ենք true, որպեսզի ռեակտ-շախմատը թույլ տա քարը տեղափոխել
       }
+    } catch (e) {
+      console.error("Premove validation error:", e);
     }
 
     return false;
